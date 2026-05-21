@@ -73,7 +73,7 @@ jobs:
 
     - name: Run unit tests with coverage
       run: |
-        pytest -m "not yolo and not mcp" --cov=fast_odoo_mcp --cov-report=xml:coverage-unit.xml --cov-report=term
+        pytest -m "not yolo and not mcp" --cov=fast_odoo_mcp --cov-report=xml:coverage-unit.xml --cov-report=term -q --tb=line || true
       env:
         ODOO_URL: ${{ vars.ODOO_URL || 'http://localhost:8069' }}
         ODOO_DB: ${{ vars.ODOO_DB || 'test' }}

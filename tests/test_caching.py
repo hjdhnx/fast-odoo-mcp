@@ -1,4 +1,4 @@
-﻿"""Tests for caching functionality with Odoo integration."""
+"""Tests for caching functionality with Odoo integration."""
 
 import os
 from unittest.mock import Mock, patch

@@ -1,16 +1,18 @@
-﻿import asyncio
+import asyncio  # noqa: F401
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 _project_root = Path(__file__).resolve().parent.parent
 load_dotenv(_project_root / ".env.group-test-local")
 
-from fast_odoo_mcp.config import get_config, reset_config
+from fast_odoo_mcp.config import get_config, reset_config  # noqa: E402
+
 reset_config()
 config = get_config()
 print(f"Locale: {config.locale}")
 
-from fast_odoo_mcp.server import OdooMCPServer
+from fast_odoo_mcp.server import OdooMCPServer  # noqa: E402
 
 
 async def test():

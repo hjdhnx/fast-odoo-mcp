@@ -1,4 +1,4 @@
-﻿"""Tests for access control integration with Odoo MCP module.
+"""Tests for access control integration with Odoo MCP module.
 
 This module tests the AccessController class and its integration with
 the Odoo MCP module's REST API endpoints.
@@ -705,9 +705,7 @@ class TestWriteAllowlist:
 
     def test_write_allowlist_blocks_unlisted_model_writes(self):
         """When write_allowlist is set, models not in the list are blocked from write operations."""
-        controller = self._make_controller(
-            write_allowlist=frozenset({"res.partner", "sale.order"})
-        )
+        controller = self._make_controller(write_allowlist=frozenset({"res.partner", "sale.order"}))
         mock_conn = MagicMock()
         mock_conn.check_access_rights.return_value = True
         controller.connection = mock_conn
@@ -731,9 +729,7 @@ class TestWriteAllowlist:
 
     def test_write_allowlist_does_not_block_reads(self):
         """write_allowlist should never block read operations."""
-        controller = self._make_controller(
-            write_allowlist=frozenset({"res.partner"})
-        )
+        controller = self._make_controller(write_allowlist=frozenset({"res.partner"}))
         mock_conn = MagicMock()
         mock_conn.check_access_rights.return_value = True
         controller.connection = mock_conn
@@ -744,9 +740,7 @@ class TestWriteAllowlist:
 
     def test_validate_model_access_raises_on_blocked_write(self):
         """validate_model_access should raise AccessControlError for blocked writes."""
-        controller = self._make_controller(
-            write_allowlist=frozenset({"res.partner"})
-        )
+        controller = self._make_controller(write_allowlist=frozenset({"res.partner"}))
 
         with pytest.raises(AccessControlError, match="WRITE_ALLOWLIST"):
             controller.validate_model_access("account.move", "write")

@@ -1,4 +1,4 @@
-﻿"""Integration tests for error sanitization in tools and resources."""
+"""Integration tests for error sanitization in tools and resources."""
 
 from unittest.mock import Mock
 

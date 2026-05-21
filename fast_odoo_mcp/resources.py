@@ -365,7 +365,9 @@ class OdooResourceHandler:
 
                 records = await self._odoo_call(
                     "resource_search_read",
-                    lambda: connection.search_read(model, parsed_domain, fields=fields_list, **search_kwargs),
+                    lambda: connection.search_read(
+                        model, parsed_domain, fields=fields_list, **search_kwargs
+                    ),
                 )
 
             # Get field metadata for formatting

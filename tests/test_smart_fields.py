@@ -1,4 +1,4 @@
-﻿"""Test smart field selection functionality."""
+"""Test smart field selection functionality."""
 
 from unittest.mock import Mock
 

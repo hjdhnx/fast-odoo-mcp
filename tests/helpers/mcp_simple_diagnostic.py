@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python
+#!/usr/bin/env python
 """Simple MCP server test script.
 
 This script tests the MCP server by starting it and verifying basic functionality.

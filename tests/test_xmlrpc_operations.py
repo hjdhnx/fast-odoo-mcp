@@ -1,4 +1,4 @@
-﻿"""Tests for XML-RPC communication layer in OdooConnection.
+"""Tests for XML-RPC communication layer in OdooConnection.
 
 Focuses on execute_kw/execute wrappers, error mapping (XML-RPC faults,
 timeouts), and credential routing. CRUD operation tests (search, read,

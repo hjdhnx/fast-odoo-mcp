@@ -1,4 +1,4 @@
-﻿"""Tests for the URI schema module."""
+"""Tests for the URI schema module."""
 
 import pytest
 

@@ -1,4 +1,4 @@
-﻿"""Tests for managed Odoo connection lifecycle."""
+"""Tests for managed Odoo connection lifecycle."""
 
 from unittest.mock import Mock, patch
 

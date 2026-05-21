@@ -1,4 +1,4 @@
-﻿"""Test helper for discovering available MCP models.
+"""Test helper for discovering available MCP models.
 
 This module provides utilities for making tests model-agnostic
 by discovering and using whatever models are available.

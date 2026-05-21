@@ -1,4 +1,4 @@
-﻿"""Tests for error message sanitization."""
+"""Tests for error message sanitization."""
 
 from fast_odoo_mcp.error_sanitizer import ErrorSanitizer
 

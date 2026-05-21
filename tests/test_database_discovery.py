@@ -1,4 +1,4 @@
-﻿"""Tests for database discovery functionality in OdooConnection.
+"""Tests for database discovery functionality in OdooConnection.
 
 This module tests database listing, auto-selection logic, and
 database validation features.

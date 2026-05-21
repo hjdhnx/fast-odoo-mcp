@@ -1,4 +1,4 @@
-﻿"""Tests for search resource functionality."""
+"""Tests for search resource functionality."""
 
 import json
 from unittest.mock import Mock

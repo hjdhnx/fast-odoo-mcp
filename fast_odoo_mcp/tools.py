@@ -78,9 +78,13 @@ class OdooToolHandler:
     @property
     def perf_manager(self):
         from .performance import PerformanceManager
-        if self.connection_manager is not None and self.connection_manager.performance_manager is not None:
+
+        if (
+            self.connection_manager is not None
+            and self.connection_manager.performance_manager is not None
+        ):
             return self.connection_manager.performance_manager
-        if self.connection is not None and hasattr(self.connection, 'performance_manager'):
+        if self.connection is not None and hasattr(self.connection, "performance_manager"):
             return self.connection.performance_manager
         if self.config is not None:
             return PerformanceManager(self.config)
@@ -421,7 +425,9 @@ class OdooToolHandler:
         return max(score, 0)
 
     def _get_smart_default_fields(
-        self, model: str, connection: Optional[OdooConnectionProtocol] = None,
+        self,
+        model: str,
+        connection: Optional[OdooConnectionProtocol] = None,
         preloaded_fields: Optional[Dict[str, Any]] = None,
     ) -> Optional[List[str]]:
         conn = connection or self.connection
@@ -988,7 +994,9 @@ class OdooToolHandler:
                 Returns:
                     方法调用的原始返回值和执行状态
                 """
-                result = await self._handle_execute_method_tool(model, method, record_ids, args, kwargs)
+                result = await self._handle_execute_method_tool(
+                    model, method, record_ids, args, kwargs
+                )
                 return ExecuteMethodResult(**result)
 
         if not _is_disabled("simulate_onchange"):
@@ -1233,7 +1241,9 @@ class OdooToolHandler:
                             lambda: connection.fields_get(model),
                         )
                         self.perf_manager.cache_fields(model, all_fields_info)
-                    fields_to_fetch = self._get_smart_default_fields(model, connection, all_fields_info)
+                    fields_to_fetch = self._get_smart_default_fields(
+                        model, connection, all_fields_info
+                    )
                     use_smart_defaults = True
                     field_selection_method = "smart_defaults"
                     total_fields = len(all_fields_info)
@@ -1247,7 +1257,9 @@ class OdooToolHandler:
                 else:
                     logger.debug(f"Fetching specific fields for {model}: {fields}")
 
-                cached_record = self.perf_manager.get_cached_record(model, record_id, fields_to_fetch)
+                cached_record = self.perf_manager.get_cached_record(
+                    model, record_id, fields_to_fetch
+                )
                 if cached_record is not None:
                     record = cached_record
                 else:
@@ -1858,7 +1870,9 @@ class OdooToolHandler:
                 try:
                     result = await self._odoo_call(
                         f"tool_execute_{method}",
-                        lambda m=model, mt=method, a=rpc_args, k=rpc_kwargs: connection.execute_kw(m, mt, a, k),
+                        lambda m=model, mt=method, a=rpc_args, k=rpc_kwargs: connection.execute_kw(
+                            m, mt, a, k
+                        ),
                     )
                 except OdooConnectionError as rpc_err:
                     none_hint = "cannot marshal None" in str(rpc_err)
@@ -1925,9 +1939,7 @@ class OdooToolHandler:
                         lambda: connection.read(model, [record_id]),
                     )
                     if not existing:
-                        raise ValidationError(
-                            f"Record not found: {model} with ID {record_id}"
-                        )
+                        raise ValidationError(f"Record not found: {model} with ID {record_id}")
                     current_values = existing[0]
                     current_values[field_name] = field_value
                     if values:
@@ -2011,8 +2023,15 @@ class OdooToolHandler:
                         method_info["type"] = "onchange"
                     elif name in ("create", "write", "read", "unlink", "copy"):
                         method_info["type"] = "crud"
-                    elif name in ("search", "search_read", "search_count", "read_group",
-                                  "name_get", "name_search", "name_create"):
+                    elif name in (
+                        "search",
+                        "search_read",
+                        "search_count",
+                        "read_group",
+                        "name_get",
+                        "name_search",
+                        "name_create",
+                    ):
                         method_info["type"] = "query"
                     elif name.startswith("message_"):
                         method_info["type"] = "mail"
@@ -2020,7 +2039,13 @@ class OdooToolHandler:
                         method_info["type"] = "utility"
                     all_methods.append(method_info)
 
-                all_methods.append({"name": "onchange", "type": "onchange", "description": "Simulate field onchange behavior"})
+                all_methods.append(
+                    {
+                        "name": "onchange",
+                        "type": "onchange",
+                        "description": "Simulate field onchange behavior",
+                    }
+                )
 
                 model_info = await self._odoo_call(
                     "tool_get_model_info",
@@ -2031,13 +2056,16 @@ class OdooToolHandler:
                         limit=1,
                     ),
                 )
-                model_display_name = model_info[0]["name"] if model_info else model
+                _model_display_name = model_info[0]["name"] if model_info else model  # noqa: F841
 
                 for prefix in safe_prefixes:
                     method_info = {
                         "name": f"{prefix}*",
-                        "type": "action" if prefix.startswith("action_") else
-                                "button" if prefix.startswith("button_") else "onchange",
+                        "type": "action"
+                        if prefix.startswith("action_")
+                        else "button"
+                        if prefix.startswith("button_")
+                        else "onchange",
                         "description": f"Any method starting with '{prefix}' (wildcard)",
                         "pattern": True,
                     }
@@ -2046,7 +2074,8 @@ class OdooToolHandler:
                 if search:
                     needle = search.lower()
                     all_methods = [
-                        m for m in all_methods
+                        m
+                        for m in all_methods
                         if needle in m["name"].lower()
                         or needle in str(m.get("description", "")).lower()
                         or needle in str(m.get("type", "")).lower()

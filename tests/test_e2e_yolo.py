@@ -1,4 +1,4 @@
-﻿"""End-to-end tests for YOLO mode functionality.
+"""End-to-end tests for YOLO mode functionality.
 
 This module tests complete YOLO mode workflows with real Odoo instances.
 Tests are marked with @pytest.mark.yolo and require a running Odoo instance.

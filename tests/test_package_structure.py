@@ -1,4 +1,4 @@
-﻿"""Test package structure and basic functionality."""
+"""Test package structure and basic functionality."""
 
 import subprocess
 import sys

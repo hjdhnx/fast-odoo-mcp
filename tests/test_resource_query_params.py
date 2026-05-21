@@ -1,4 +1,4 @@
-﻿"""Tests for resource URI query parameter handling.
+"""Tests for resource URI query parameter handling.
 
 This test file specifically tests the fix for issue #4 where
 resource URIs with query parameters were failing with "Unknown operation" errors.

@@ -1,4 +1,4 @@
-﻿"""Tests for basic Odoo XML-RPC connection infrastructure.
+"""Tests for basic Odoo XML-RPC connection infrastructure.
 
 These tests use a real Odoo server at localhost:8069 to test
 connection management and error handling.

@@ -1,4 +1,4 @@
-﻿"""Test datetime formatting in tools."""
+"""Test datetime formatting in tools."""
 
 from unittest.mock import Mock
 

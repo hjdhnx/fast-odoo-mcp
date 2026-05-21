@@ -1,4 +1,4 @@
-﻿"""Tests for data formatting system."""
+"""Tests for data formatting system."""
 
 from datetime import date, datetime
 

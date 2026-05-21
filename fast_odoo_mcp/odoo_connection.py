@@ -832,7 +832,9 @@ class OdooConnection:
                     merged_ctx.setdefault("lang", self.config.locale)
                     effective_kwargs["context"] = merged_ctx
 
-            logger.debug(f"Executing {method} on {model} with args={args}, kwargs={effective_kwargs}")
+            logger.debug(
+                f"Executing {method} on {model} with args={args}, kwargs={effective_kwargs}"
+            )
 
             result = self.object_proxy.execute_kw(
                 self._database, self._uid, password_or_token, model, method, args, effective_kwargs

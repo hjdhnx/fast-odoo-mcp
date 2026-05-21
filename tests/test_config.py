@@ -1,4 +1,4 @@
-﻿"""Tests for the configuration module."""
+"""Tests for the configuration module."""
 
 import os
 import tempfile

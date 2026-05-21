@@ -117,7 +117,9 @@ class ConnectionManager:
                     logger.warning("Odoo connection lost, reconnecting: %s", operation_name)
                     self.reconnect()
                 else:
-                    logger.warning("Odoo operation failed (transient), retrying: %s", operation_name)
+                    logger.warning(
+                        "Odoo operation failed (transient), retrying: %s", operation_name
+                    )
                 with perf_logger.track_operation(f"{operation_name}_retry"):
                     return func()
 

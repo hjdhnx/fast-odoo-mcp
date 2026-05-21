@@ -1,4 +1,4 @@
-﻿"""Tests for authentication functionality in OdooConnection.
+"""Tests for authentication functionality in OdooConnection.
 
 This module tests both API key and username/password authentication flows.
 """

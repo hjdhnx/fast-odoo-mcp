@@ -1,4 +1,4 @@
-﻿"""Pytest configuration and fixtures for Odoo MCP Server tests."""
+"""Pytest configuration and fixtures for Odoo MCP Server tests."""
 
 import os
 import socket

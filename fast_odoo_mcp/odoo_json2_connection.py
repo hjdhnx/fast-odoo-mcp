@@ -473,9 +473,7 @@ class OdooJSON2Connection:
         logger.info(f"Deleted {len(ids)} {model} record(s)")
         return result
 
-    def execute_kw(
-        self, model: str, method: str, args: List[Any], kwargs: Dict[str, Any]
-    ) -> Any:
+    def execute_kw(self, model: str, method: str, args: List[Any], kwargs: Dict[str, Any]) -> Any:
         """Execute an arbitrary ORM method on a model.
 
         This is the low-level gateway that maps 1:1 to Odoo's

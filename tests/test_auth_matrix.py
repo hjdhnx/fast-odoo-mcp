@@ -1,4 +1,4 @@
-﻿"""Auth matrix integration tests — covers all credential combinations.
+"""Auth matrix integration tests — covers all credential combinations.
 
 Tests every auth scenario from docs/auth-test-matrix.md:
 - Standard mode (S1–S7): API key and/or user/pass, with/without DB

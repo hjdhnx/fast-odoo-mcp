@@ -1,4 +1,4 @@
-﻿"""Tests for error handling and logging system."""
+"""Tests for error handling and logging system."""
 
 import json
 import logging

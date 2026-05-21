@@ -1,4 +1,4 @@
-﻿"""Tests for OdooConnection write operations (create, write, unlink).
+"""Tests for OdooConnection write operations (create, write, unlink).
 
 These tests mock only the XML-RPC proxy (the network boundary),
 letting all OdooConnection logic (argument building, caching,

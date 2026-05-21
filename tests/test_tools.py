@@ -1,4 +1,4 @@
-﻿"""Test suite for MCP tools functionality."""
+"""Test suite for MCP tools functionality."""
 
 from unittest.mock import MagicMock
 

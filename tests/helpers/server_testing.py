@@ -1,4 +1,4 @@
-﻿"""Helper utilities for MCP server testing."""
+"""Helper utilities for MCP server testing."""
 
 import contextlib
 import logging

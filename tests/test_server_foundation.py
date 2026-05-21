@@ -1,4 +1,4 @@
-﻿"""Tests for FastMCP server foundation and lifecycle.
+"""Tests for FastMCP server foundation and lifecycle.
 
 This module tests the basic server structure, initialization,
 lifecycle management, and connection to Odoo.

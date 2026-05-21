@@ -1,4 +1,4 @@
-﻿"""Tests for advanced resource operations (browse, count, fields)."""
+"""Tests for advanced resource operations (browse, count, fields)."""
 
 import json
 from unittest.mock import Mock

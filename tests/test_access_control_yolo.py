@@ -1,4 +1,4 @@
-﻿"""Tests for YOLO mode access control functionality.
+"""Tests for YOLO mode access control functionality.
 
 This module tests the AccessController class behavior in YOLO modes.
 """

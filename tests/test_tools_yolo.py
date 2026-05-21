@@ -1,4 +1,4 @@
-﻿"""Tests for tools functionality in YOLO mode.
+"""Tests for tools functionality in YOLO mode.
 
 This module tests the tool handlers behavior in YOLO modes.
 """

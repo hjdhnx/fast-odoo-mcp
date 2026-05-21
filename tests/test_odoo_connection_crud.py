@@ -1,4 +1,4 @@
-﻿"""Unit tests for OdooConnection CRUD methods.
+"""Unit tests for OdooConnection CRUD methods.
 
 These tests mock only the XML-RPC proxy (the network boundary),
 letting all OdooConnection logic (argument building, caching,

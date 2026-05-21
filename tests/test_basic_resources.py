@@ -1,4 +1,4 @@
-﻿"""Tests for basic MCP resource handling."""
+"""Tests for basic MCP resource handling."""
 
 from unittest.mock import Mock
 

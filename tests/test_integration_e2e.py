@@ -1,4 +1,4 @@
-﻿"""End-to-end integration tests for Odoo MCP Server.
+"""End-to-end integration tests for Odoo MCP Server.
 
 These tests validate real MCP server functionality against a running Odoo server.
 They exercise the full stack: config -> connection -> access control -> resource/tool handlers -> formatters.

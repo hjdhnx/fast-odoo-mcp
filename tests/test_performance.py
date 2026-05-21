@@ -1,4 +1,4 @@
-﻿"""Tests for performance optimization module."""
+"""Tests for performance optimization module."""
 
 import asyncio
 import os

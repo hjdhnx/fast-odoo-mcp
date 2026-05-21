@@ -1,4 +1,4 @@
-﻿"""Integration test to verify all fixes work together."""
+"""Integration test to verify all fixes work together."""
 
 from unittest.mock import Mock
 

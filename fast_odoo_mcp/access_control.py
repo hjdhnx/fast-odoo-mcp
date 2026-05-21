@@ -74,45 +74,46 @@ class AccessController:
         "_onchange_",
     )
 
-    SAFE_METHOD_NAMES = frozenset({
-        "copy",
-        "toggle_active",
-        "default_get",
-        "onchange",
-        "read_group",
-        "name_search",
-        "name_create",
-        "action_done",
-        "action_cancel",
-        "action_confirm",
-        "action_validate",
-        "action_close",
-        "action_draft",
-        "action_approve",
-        "action_refuse",
-        "action_reset",
-        "action_unlock",
-        "action_lock",
-        "action_post",
-        "action_send",
-        "action_quotation_send",
-        "action_invoice_create",
-        "action_invoice_paid",
-        "action_cancel_invoice",
-        "action_view_invoice",
-        "action_view_delivery",
-        "action_view_purchase",
-        "action_view_sales",
-        "action_assign",
-        "action_done",
-        "action_launch",
-        "action_archive",
-        "action_unarchive",
-        "message_post",
-        "message_subscribe",
-        "message_unsubscribe",
-        "message_notify",
-    })
+    SAFE_METHOD_NAMES = frozenset(
+        {
+            "copy",
+            "toggle_active",
+            "default_get",
+            "onchange",
+            "read_group",
+            "name_search",
+            "name_create",
+            "action_done",
+            "action_cancel",
+            "action_confirm",
+            "action_validate",
+            "action_close",
+            "action_draft",
+            "action_approve",
+            "action_refuse",
+            "action_reset",
+            "action_unlock",
+            "action_lock",
+            "action_post",
+            "action_send",
+            "action_quotation_send",
+            "action_invoice_create",
+            "action_invoice_paid",
+            "action_cancel_invoice",
+            "action_view_invoice",
+            "action_view_delivery",
+            "action_view_purchase",
+            "action_view_sales",
+            "action_assign",
+            "action_launch",
+            "action_archive",
+            "action_unarchive",
+            "message_post",
+            "message_subscribe",
+            "message_unsubscribe",
+            "message_notify",
+        }
+    )
 
     BLOCKED_METHOD_PATTERNS = (
         "_",
@@ -302,7 +303,10 @@ class AccessController:
         # Write allowlist: when set, only listed models allow write operations
         if operation in ("write", "create", "unlink") and self.config.write_allowlist:
             if model not in self.config.write_allowlist:
-                return False, f"Write operation '{operation}' not allowed on model '{model}' (not in ODOO_MCP_WRITE_ALLOWLIST)"
+                return (
+                    False,
+                    f"Write operation '{operation}' not allowed on model '{model}' (not in ODOO_MCP_WRITE_ALLOWLIST)",
+                )
 
         permissions = self._get_connection_model_permissions(model)
         if not permissions.can_perform(operation):
@@ -350,9 +354,8 @@ class AccessController:
         if method.startswith("__"):
             return False, f"Dunder methods ('{method}') are not callable via MCP"
 
-        is_safe = (
-            method in self.SAFE_METHOD_NAMES
-            or any(method.startswith(p) for p in self.SAFE_METHOD_PREFIXES)
+        is_safe = method in self.SAFE_METHOD_NAMES or any(
+            method.startswith(p) for p in self.SAFE_METHOD_PREFIXES
         )
         if not is_safe:
             return False, (
@@ -362,10 +365,16 @@ class AccessController:
             )
 
         state_changing_methods = {
-            "create", "write", "unlink", "copy",
-            "toggle_active", "message_post",
-            "message_subscribe", "message_unsubscribe",
-            "message_notify", "import_data",
+            "create",
+            "write",
+            "unlink",
+            "copy",
+            "toggle_active",
+            "message_post",
+            "message_subscribe",
+            "message_unsubscribe",
+            "message_notify",
+            "import_data",
         }
         is_state_changing = (
             method in state_changing_methods
@@ -380,8 +389,7 @@ class AccessController:
                 )
             if self.config.write_allowlist and model not in self.config.write_allowlist:
                 return False, (
-                    f"Method '{method}' on '{model}' is blocked by "
-                    f"ODOO_MCP_WRITE_ALLOWLIST"
+                    f"Method '{method}' on '{model}' is blocked by ODOO_MCP_WRITE_ALLOWLIST"
                 )
             if not permissions.can_write:
                 return False, f"No write permission on model '{model}' for method '{method}'"

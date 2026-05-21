@@ -1,4 +1,4 @@
-﻿"""Helper classes for testing MCP transports."""
+"""Helper classes for testing MCP transports."""
 
 import json
 import select

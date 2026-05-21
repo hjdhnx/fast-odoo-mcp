@@ -1,4 +1,4 @@
-﻿"""Tests for write operation tools."""
+"""Tests for write operation tools."""
 
 from unittest.mock import Mock, call
 

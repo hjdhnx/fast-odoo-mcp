@@ -195,7 +195,9 @@ class PublicConfigResult(BaseModel):
     max_bulk_size: int = Field(description="Maximum number of records allowed in one bulk write")
     max_smart_fields: int = Field(description="Maximum number of smart default fields returned")
     strict_security: bool = Field(description="Whether strict HTTP transport security is enabled")
-    stateless_http: bool = Field(description="Whether streamable HTTP uses stateless per-request sessions")
+    stateless_http: bool = Field(
+        description="Whether streamable HTTP uses stateless per-request sessions"
+    )
 
 
 # --- Server Info ---

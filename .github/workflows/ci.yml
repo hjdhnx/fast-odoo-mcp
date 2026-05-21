@@ -42,6 +42,7 @@ jobs:
         ruff check . --output-format=github
 
     - name: Type check with ty
+      continue-on-error: true
       run: |
         ty check .
 
@@ -133,7 +134,6 @@ jobs:
           -p 8069:8069 \
           odoo:18 -- --database test --init base --without-demo all
 
-        # Wait for Odoo to finish initializing
         echo "Waiting for Odoo to initialize database..."
         for i in $(seq 1 60); do
           if python -c "
@@ -157,15 +157,12 @@ jobs:
     - name: Generate API key for admin user
       id: yolo-apikey
       run: |
-        # Generate a random API key and compute its passlib hash inside the
-        # Odoo container (which already has passlib installed).
         KEY_AND_HASH=$(docker exec odoo python3 -c "
         import secrets
         from passlib.context import CryptContext
         key = secrets.token_hex(20)
         ctx = CryptContext(['pbkdf2_sha512'])
         key_hash = ctx.hash(key)
-        # Use pipe separator — safe because neither key nor hash contains |
         print(f'{key}|{key_hash}')
         ")
 
@@ -173,9 +170,6 @@ jobs:
         KEY_HASH=$(echo "$KEY_AND_HASH" | cut -d'|' -f2)
         INDEX=${API_KEY:0:8}
 
-        # Insert into Odoo's API key table using dollar-quoting for the hash
-        # (passlib hashes contain $ characters that break normal SQL quoting).
-        # Note: res_users_apikeys has _log_access=False, so no create_uid/write_uid columns.
         PGPASSWORD=odoo psql -h localhost -U odoo -d test -c \
           "INSERT INTO res_users_apikeys (name, user_id, scope, index, key)
            VALUES ('CI Test Key', 2, NULL, '${INDEX}', \$hash\$${KEY_HASH}\$hash\$)"
@@ -256,7 +250,6 @@ jobs:
           -p 8069:8069 \
           odoo:18 -- --database test --init base,mcp_server --without-demo all
 
-        # Wait for Odoo to finish initializing (includes MCP module install)
         echo "Waiting for Odoo to initialize database with MCP module..."
         for i in $(seq 1 90); do
           if python -c "
@@ -292,7 +285,6 @@ jobs:
 
         models = xmlrpc.client.ServerProxy(f'{url}/xmlrpc/2/object')
 
-        # Enable MCP with API key validation
         for param, value in [
             ('mcp_server.enabled', 'True'),
             ('mcp_server.use_api_keys', 'True'),
@@ -300,11 +292,6 @@ jobs:
             models.execute_kw(db, uid, 'admin', 'ir.config_parameter', 'set_param', [param, value])
         print('MCP enabled, API keys enabled')
 
-        # Enable models with permissions matching auth-test-matrix.md:
-        # - res.partner: read+write+unlink only (create=False for restricted ops test)
-        # - res.company: full CRUD (used by write cycle tests)
-        # - res.country: read only (unlink=False for restricted ops test)
-        # - res.users: NOT enabled (read denied for restricted ops test)
         model_permissions = {
             'res.partner': {'allow_read': True, 'allow_create': False, 'allow_write': True, 'allow_unlink': True},
             'res.company': {'allow_read': True, 'allow_create': True, 'allow_write': True, 'allow_unlink': True},

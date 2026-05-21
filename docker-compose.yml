@@ -1,0 +1,133 @@
+﻿services:
+  odoo-mcp-server-client-a:
+    image: my-odoo-mcp:latest
+    build:
+      context: .
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim-bookworm}
+        UV_INDEX_URL: ${UV_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+    container_name: odoo-mcp-server-client-a
+    restart: unless-stopped
+    env_file:
+      - .env.client-a
+    environment:
+      ODOO_MCP_TRANSPORT: streamable-http
+      ODOO_MCP_HOST: 0.0.0.0
+      ODOO_MCP_PORT: "8000"
+      ODOO_MCP_ALLOWED_HOSTS: 192.168.1.100:8000,192.168.1.100:8001,192.168.1.100:8002,192.168.1.100:8003
+      ODOO_MCP_ALLOWED_ORIGINS: http://192.168.1.100:8000,http://192.168.1.100:8001,http://192.168.1.100:8002,http://192.168.1.100:8003
+    ports:
+      - "8000:8000"
+    command:
+      - --transport
+      - streamable-http
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/health\", timeout=5)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  odoo-mcp-server-client-b:
+    image: my-odoo-mcp:latest
+    container_name: odoo-mcp-server-client-b
+    restart: unless-stopped
+    env_file:
+      - .env.client-b
+    environment:
+      ODOO_MCP_TRANSPORT: streamable-http
+      ODOO_MCP_HOST: 0.0.0.0
+      ODOO_MCP_PORT: "8000"
+      ODOO_MCP_ALLOWED_HOSTS: 192.168.1.100:8000,192.168.1.100:8001,192.168.1.100:8002,192.168.1.100:8003
+      ODOO_MCP_ALLOWED_ORIGINS: http://192.168.1.100:8000,http://192.168.1.100:8001,http://192.168.1.100:8002,http://192.168.1.100:8003
+    ports:
+      - "8001:8000"
+    command:
+      - --transport
+      - streamable-http
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/health\", timeout=5)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  odoo-mcp-server-client-a:
+    image: my-odoo-mcp:latest
+    container_name: odoo-mcp-server-client-a
+    restart: unless-stopped
+    env_file:
+      - .env.client-a
+    environment:
+      ODOO_MCP_TRANSPORT: streamable-http
+      ODOO_MCP_HOST: 0.0.0.0
+      ODOO_MCP_PORT: "8000"
+      ODOO_MCP_ALLOWED_HOSTS: 192.168.1.100:8000,192.168.1.100:8001,192.168.1.100:8002,192.168.1.100:8003
+      ODOO_MCP_ALLOWED_ORIGINS: http://192.168.1.100:8000,http://192.168.1.100:8001,http://192.168.1.100:8002,http://192.168.1.100:8003
+    ports:
+      - "8002:8000"
+    command:
+      - --transport
+      - streamable-http
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/health\", timeout=5)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  odoo-mcp-server-client-c:
+    image: my-odoo-mcp:latest
+    container_name: odoo-mcp-server-client-c
+    restart: unless-stopped
+    env_file:
+      - .env.client-c
+    environment:
+      ODOO_MCP_TRANSPORT: streamable-http
+      ODOO_MCP_HOST: 0.0.0.0
+      ODOO_MCP_PORT: "8000"
+      ODOO_MCP_ALLOWED_HOSTS: 192.168.1.100:8000,192.168.1.100:8001,192.168.1.100:8002,192.168.1.100:8003
+      ODOO_MCP_ALLOWED_ORIGINS: http://192.168.1.100:8000,http://192.168.1.100:8001,http://192.168.1.100:8002,http://192.168.1.100:8003
+    ports:
+      - "8003:8000"
+    command:
+      - --transport
+      - streamable-http
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/health\", timeout=5)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

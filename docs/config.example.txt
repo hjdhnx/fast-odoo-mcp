@@ -1,0 +1,48 @@
+docker run -d --name odoo-mcp-server `
+  -p 8000:8000 `
+  -e ODOO_URL=http://host.docker.internal:8069 `
+  -e ODOO_DB=your-database `
+  -e ODOO_USER=your-username `
+  -e ODOO_PASSWORD=your-password `
+  -e ODOO_YOLO=true `
+  odoo-mcp --transport sse --host 0.0.0.0 --port 8000
+
+
+
+{
+  "mcpServers": {
+    "odoo-mcp-docker": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e", "ODOO_URL=http://host.docker.internal:8069",
+        "-e", "ODOO_DB=your-database",
+        "-e", "ODOO_USER=your-username",
+        "-e", "ODOO_PASSWORD=your-password",
+        "-e", "ODOO_YOLO=true",
+        "odoo-mcp"
+      ]
+    }
+  }
+}
+
+cd /path/to/fast-odoo-mcp
+pip install -e /path/to/fast-odoo-mcp
+
+{
+  "mcpServers": {
+    "odoo-mcp-local": {
+      "command": "python",
+      "args": ["-m", "fast_odoo_mcp"],
+      "env": {
+        "ODOO_URL": "http://localhost:8069",
+        "ODOO_DB": "your-database",
+        "ODOO_USER": "your-username",
+        "ODOO_PASSWORD": "your-password",
+        "ODOO_YOLO": "true"
+      }
+    }
+  }
+}

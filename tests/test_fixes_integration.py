@@ -1,0 +1,193 @@
+﻿"""Integration test to verify all fixes work together."""
+
+from unittest.mock import Mock
+
+import pytest
+
+from fast_odoo_mcp.tools import OdooToolHandler
+
+
+class TestFixesIntegration:
+    """Test that all fixes work together correctly."""
+
+    @pytest.fixture
+    def tool_handler(self):
+        """Create a tool handler with mocked dependencies."""
+        app = Mock()
+        connection = Mock()
+        access_controller = Mock()
+        config = Mock()
+        config.default_limit = 10
+        config.max_limit = 100
+        config.max_smart_fields = 30
+        config.is_yolo_enabled = False  # Ensure standard mode for these tests
+        config.yolo_mode = "off"
+
+        return OdooToolHandler(app, connection, access_controller, config)
+
+    @pytest.mark.asyncio
+    async def test_all_fixes_work_together(self, tool_handler):
+        """Test datetime formatting, list_models JSON, and smart fields all work."""
+        # Setup connection mock
+        tool_handler.connection.is_authenticated = True
+
+        # Test 1: list_models returns proper JSON structure
+        mock_models = [
+            {"model": "res.partner", "name": "Contact"},
+            {"model": "res.company", "name": "Companies"},
+        ]
+        tool_handler.access_controller.get_enabled_models.return_value = mock_models
+
+        # Mock permissions for each model
+        mock_permissions = Mock()
+        mock_permissions.can_read = True
+        mock_permissions.can_write = True
+        mock_permissions.can_create = False
+        mock_permissions.can_unlink = False
+        tool_handler.access_controller.get_model_permissions.return_value = mock_permissions
+
+        models_result = await tool_handler._handle_list_models_tool()
+
+        # Should return dict with models array containing permission info from handler logic
+        assert isinstance(models_result, dict)
+        assert "models" in models_result
+        # Verify the handler added operations metadata (real logic, not mock passthrough)
+        for model in models_result["models"]:
+            assert "operations" in model, "Handler should add operations dict per model"
+            assert model["operations"]["read"] is True
+            assert model["operations"]["write"] is True
+            assert model["operations"]["create"] is False
+
+        # Test 2: get_record with smart defaults and datetime formatting
+        tool_handler.connection.fields_get.return_value = {
+            "id": {"type": "integer"},
+            "name": {"type": "char", "required": True},
+            "email": {"type": "char", "store": True, "searchable": True},
+            "create_date": {"type": "datetime", "store": True},
+            "write_date": {"type": "datetime"},  # Should be excluded
+            "image_1920": {"type": "binary"},  # Should be excluded
+            "message_ids": {"type": "one2many"},  # Should be excluded
+        }
+
+        # Mock read to return a record — include ALL fields so we can verify
+        # smart defaults actually filtered the request (not that mock lacks fields)
+        tool_handler.connection.read.return_value = [
+            {
+                "id": 1,
+                "name": "Test Partner",
+                "email": "test@example.com",
+                "create_date": "20250606T13:50:23",  # Compact format
+            }
+        ]
+
+        record_result = await tool_handler._handle_get_record_tool("res.partner", 1, None)
+
+        # Verify smart defaults actually filtered the fields in the read() call
+        # (this is the real test — not just checking mock return values)
+        read_call_args = tool_handler.connection.read.call_args
+        requested_fields = read_call_args[0][2] if len(read_call_args[0]) > 2 else None
+        assert requested_fields is not None, "Smart defaults should have selected specific fields"
+        assert "write_date" not in requested_fields, (
+            "write_date should be excluded by smart defaults"
+        )
+        assert "image_1920" not in requested_fields, "binary fields should be excluded"
+        assert "message_ids" not in requested_fields, "one2many fields should be excluded"
+        assert "name" in requested_fields, "required char fields should be included"
+        assert "email" in requested_fields, "searchable char fields should be included"
+
+        # Should have metadata
+        assert record_result.metadata is not None
+        assert record_result.metadata.field_selection_method == "smart_defaults"
+
+        # Should have formatted datetime
+        assert record_result.record["create_date"] == "2025-06-06T13:50:23+00:00"
+
+        # Test 3: search_records with datetime formatting
+        tool_handler.connection.search_count.return_value = 2
+        tool_handler.connection.search.return_value = [1, 2]
+        tool_handler.connection.read.return_value = [
+            {
+                "id": 1,
+                "name": "Partner 1",
+                "create_date": "20250606T13:50:23",  # Compact format
+                "write_date": "2025-06-07 14:30:00",  # Standard format
+            },
+            {
+                "id": 2,
+                "name": "Partner 2",
+                "create_date": "20250607T10:20:30",
+                "write_date": "2025-06-08 11:45:00",
+            },
+        ]
+
+        search_result = await tool_handler._handle_search_tool(
+            "res.partner",
+            [["is_company", "=", True]],
+            ["name", "create_date", "write_date"],
+            10,
+            0,
+            None,
+        )
+
+        # Should have properly formatted datetimes
+        assert search_result["records"][0]["create_date"] == "2025-06-06T13:50:23+00:00"
+        assert search_result["records"][0]["write_date"] == "2025-06-07T14:30:00+00:00"
+        assert search_result["records"][1]["create_date"] == "2025-06-07T10:20:30+00:00"
+        assert search_result["records"][1]["write_date"] == "2025-06-08T11:45:00+00:00"
+
+    @pytest.mark.asyncio
+    async def test_get_record_with_all_fields_option(self, tool_handler):
+        """Test get_record with __all__ option returns all fields without metadata."""
+        tool_handler.connection.is_authenticated = True
+
+        # Mock a large response with many fields
+        large_record = {
+            "id": 1,
+            "name": "Test",
+            "email": "test@example.com",
+            "image_1920": "base64data...",
+            "message_ids": [1, 2, 3],
+            "write_date": "20250606T13:50:23",
+            # ... imagine 100+ more fields
+        }
+        tool_handler.connection.read.return_value = [large_record]
+
+        result = await tool_handler._handle_get_record_tool("res.partner", 1, ["__all__"])
+
+        # Should NOT have metadata (not using smart defaults)
+        assert result.metadata is None
+
+        # Verify read was called without field filtering (__all__ disables smart fields)
+        tool_handler.connection.read.assert_called_once()
+        call_args = tool_handler.connection.read.call_args
+        fields_passed = call_args[0][2]
+        assert fields_passed is None, (
+            f"Expected fields=None when __all__ is used, got {fields_passed}"
+        )
+
+        # Should still format datetime
+        assert result.record["write_date"] == "2025-06-06T13:50:23+00:00"
+
+    @pytest.mark.asyncio
+    async def test_get_record_with_specific_fields(self, tool_handler):
+        """Test get_record with specific fields returns only those fields."""
+        tool_handler.connection.is_authenticated = True
+
+        tool_handler.connection.read.return_value = [
+            {"name": "Test Partner", "vat": "US123456", "create_date": "20250606T13:50:23"}
+        ]
+
+        result = await tool_handler._handle_get_record_tool(
+            "res.partner", 1, ["name", "vat", "create_date"]
+        )
+
+        # Should NOT have metadata (explicit field selection)
+        assert result.metadata is None
+
+        # Verify read was called with the specific fields
+        tool_handler.connection.read.assert_called_once_with(
+            "res.partner", [1], ["name", "vat", "create_date"]
+        )
+
+        # Should still format datetime
+        assert result.record["create_date"] == "2025-06-06T13:50:23+00:00"

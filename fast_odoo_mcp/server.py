@@ -141,6 +141,9 @@ class OdooMCPServer:
         self._executor: Optional[ThreadPoolExecutor] = None
         self._http_auth_applied = False
 
+        self._register_tools()
+        self._register_resources()
+
         logger.info(f"Initialized Odoo MCP Server v{SERVER_VERSION}")
 
     @contextlib.asynccontextmanager
@@ -159,7 +162,6 @@ class OdooMCPServer:
                     self._configure_executor()
                     self._ensure_connection()
                     self._register_resources()
-                    self._register_tools()
                 yield {}
             finally:
                 logger.info("FastMCP lifespan ended; keeping managed Odoo connection available")
@@ -206,20 +208,25 @@ class OdooMCPServer:
         self.tool_handler = None
 
     def _register_resources(self):
-        """Register resource handlers after connection is established."""
-        if self.connection and self.access_controller:
-            self.resource_handler = register_resources(
-                self.app,
-                self.connection,
-                self.access_controller,
-                self.config,
-                connection_manager=self.connection_manager,
+        """Register resource handlers."""
+        if self.resource_handler is None:
+            conn = self.connection or (
+                self.connection_manager.connection_proxy if self.connection_manager else None
             )
-            logger.info("Registered MCP resources")
+            ac = self.access_controller
+            if conn and ac:
+                self.resource_handler = register_resources(
+                    self.app,
+                    conn,
+                    ac,
+                    self.config,
+                    connection_manager=self.connection_manager,
+                )
+                logger.info("Registered MCP resources")
 
     def _register_tools(self):
-        """Register tool handlers after connection is established."""
-        if self.connection and self.access_controller:
+        """Register tool handlers."""
+        if self.tool_handler is None:
             self.tool_handler = register_tools(
                 self.app,
                 self.connection,

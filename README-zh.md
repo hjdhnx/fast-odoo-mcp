@@ -1,3 +1,5 @@
+中文 | **[English](README.md)**
+
 # Odoo MCP 服务器 (MCP Server for Odoo)
 
 [![CI](https://github.com/hjdhnx/fast-odoo-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/hjdhnx/fast-odoo-mcp/actions/workflows/ci.yml)

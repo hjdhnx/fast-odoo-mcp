@@ -320,9 +320,21 @@ The server requires the following environment variables:
 | `ODOO_MCP_LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
 | `ODOO_MCP_LOG_JSON` | `false` | Enable structured JSON log output |
 | `ODOO_MCP_LOG_FILE` | — | Path for rotating log file (10 MB, 5 backups) |
-| `ODOO_MCP_TRANSPORT` | `stdio` | Transport type (`stdio`, `streamable-http`) |
+| `ODOO_MCP_TRANSPORT` | `stdio` | Transport type (`stdio`, `sse`, `streamable-http`) |
 | `ODOO_MCP_HOST` | `localhost` | Host to bind for HTTP transport |
 | `ODOO_MCP_PORT` | `8000` | Port to bind for HTTP transport |
+| `ODOO_MCP_DISABLED_TOOLS` | — | Comma-separated list of tools to disable (e.g. `create_record,delete_record`) |
+| `ODOO_MCP_READONLY` | `true` | Read-only mode (prevents all write operations) |
+| `ODOO_MCP_HTTP_TOKEN` | — | Bearer token for HTTP transport authentication |
+| `ODOO_MCP_STRICT_SECURITY` | `true` | Enforce strict security checks (require token for non-local HTTP) |
+| `ODOO_MCP_MAX_WORKERS` | `20` | Maximum thread pool workers for concurrent requests |
+| `ODOO_MCP_MAX_BULK_SIZE` | `100` | Maximum records per bulk operation (create/update/delete) |
+| `ODOO_MCP_MODEL_ALLOWLIST` | — | Comma-separated model names to allow (empty = all allowed) |
+| `ODOO_MCP_MODEL_BLOCKLIST` | — | Comma-separated model names to block |
+| `ODOO_MCP_WRITE_ALLOWLIST` | — | Comma-separated model names allowed for write operations |
+| `ODOO_MCP_ALLOWED_HOSTS` | — | Comma-separated allowed hosts for DNS rebinding protection |
+| `ODOO_MCP_ALLOWED_ORIGINS` | — | Comma-separated allowed origins for CORS |
+| `ODOO_MCP_STATELESS_HTTP` | `true` | Enable stateless HTTP mode (no session persistence) |
 
 ### Transport Options
 
@@ -489,6 +501,97 @@ Delete a record from Odoo.
   "model": "res.partner",
   "record_id": 42
 }
+```
+
+### `create_records`
+Bulk create multiple records in a single call.
+
+```json
+{
+  "model": "res.partner",
+  "records": [
+    {"name": "Customer A", "email": "a@example.com"},
+    {"name": "Customer B", "email": "b@example.com"}
+  ]
+}
+```
+
+### `update_records`
+Bulk update multiple records by ID.
+
+```json
+{
+  "model": "res.partner",
+  "records": [
+    {"id": 1, "phone": "+1111111111"},
+    {"id": 2, "phone": "+2222222222"}
+  ]
+}
+```
+
+### `delete_records`
+Bulk delete multiple records by ID.
+
+```json
+{
+  "model": "res.partner",
+  "ids": [42, 43, 44]
+}
+```
+
+### `execute_method`
+Execute an arbitrary method on an Odoo model.
+
+```json
+{
+  "model": "sale.order",
+  "method": "action_confirm",
+  "args": [42]
+}
+```
+
+### `simulate_onchange`
+Simulate onchange behavior for a model's field values.
+
+```json
+{
+  "model": "sale.order",
+  "values": {"partner_id": 1},
+  "field_name": "partner_id"
+}
+```
+
+### `get_model_methods`
+List available methods on an Odoo model.
+
+```json
+{
+  "model": "sale.order"
+}
+```
+
+### `validate_domain`
+Validate an Odoo search domain expression.
+
+```json
+{
+  "model": "res.partner",
+  "domain": [["is_company", "=", true], ["country_id.code", "=", "US"]]
+}
+```
+
+### `server_info`
+Get server version and configuration information.
+
+```json
+{}
+```
+
+### `get_public_config`
+Get the public (non-sensitive) server configuration.
+
+```json
+{}
 ```
 
 ### Smart Field Selection

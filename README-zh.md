@@ -320,9 +320,21 @@ pip install -e .
 | `ODOO_MCP_LOG_LEVEL` | `INFO` | 日志级别 (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
 | `ODOO_MCP_LOG_JSON` | `false` | 启用结构化 JSON 日志输出 |
 | `ODOO_MCP_LOG_FILE` | — | 滚动日志文件路径 (10 MB, 5 个备份) |
-| `ODOO_MCP_TRANSPORT` | `stdio` | 传输类型 (`stdio`, `streamable-http`) |
+| `ODOO_MCP_TRANSPORT` | `stdio` | 传输类型 (`stdio`, `sse`, `streamable-http`) |
 | `ODOO_MCP_HOST` | `localhost` | HTTP 传输绑定的主机 |
 | `ODOO_MCP_PORT` | `8000` | HTTP 传输绑定的端口 |
+| `ODOO_MCP_DISABLED_TOOLS` | — | 逗号分隔的禁用工具列表（如 `create_record,delete_record`） |
+| `ODOO_MCP_READONLY` | `true` | 只读模式（阻止所有写操作） |
+| `ODOO_MCP_HTTP_TOKEN` | — | HTTP 传输的 Bearer Token 认证 |
+| `ODOO_MCP_STRICT_SECURITY` | `true` | 启用严格安全检查（非本地 HTTP 必须设置 Token） |
+| `ODOO_MCP_MAX_WORKERS` | `20` | 线程池最大工作线程数 |
+| `ODOO_MCP_MAX_BULK_SIZE` | `100` | 批量操作的最大记录数（创建/更新/删除） |
+| `ODOO_MCP_MODEL_ALLOWLIST` | — | 逗号分隔的允许访问的模型名（空=允许所有） |
+| `ODOO_MCP_MODEL_BLOCKLIST` | — | 逗号分隔的禁止访问的模型名 |
+| `ODOO_MCP_WRITE_ALLOWLIST` | — | 逗号分隔的允许写操作的模型名 |
+| `ODOO_MCP_ALLOWED_HOSTS` | — | 逗号分隔的允许主机（DNS rebinding 防护） |
+| `ODOO_MCP_ALLOWED_ORIGINS` | — | 逗号分隔的允许来源（CORS） |
+| `ODOO_MCP_STATELESS_HTTP` | `true` | 启用无状态 HTTP 模式（无会话持久化） |
 
 ### 传输选项
 
@@ -513,6 +525,97 @@ docker run -d --name odoo-mcp-server \
   "model": "res.partner",
   "record_id": 42
 }
+```
+
+### `create_records`
+批量创建多条记录。
+
+```json
+{
+  "model": "res.partner",
+  "records": [
+    {"name": "客户 A", "email": "a@example.com"},
+    {"name": "客户 B", "email": "b@example.com"}
+  ]
+}
+```
+
+### `update_records`
+批量更新多条记录。
+
+```json
+{
+  "model": "res.partner",
+  "records": [
+    {"id": 1, "phone": "+1111111111"},
+    {"id": 2, "phone": "+2222222222"}
+  ]
+}
+```
+
+### `delete_records`
+批量删除多条记录。
+
+```json
+{
+  "model": "res.partner",
+  "ids": [42, 43, 44]
+}
+```
+
+### `execute_method`
+执行 Odoo 模型上的任意方法。
+
+```json
+{
+  "model": "sale.order",
+  "method": "action_confirm",
+  "args": [42]
+}
+```
+
+### `simulate_onchange`
+模拟模型字段的 onchange 行为。
+
+```json
+{
+  "model": "sale.order",
+  "values": {"partner_id": 1},
+  "field_name": "partner_id"
+}
+```
+
+### `get_model_methods`
+列出 Odoo 模型上可用的方法。
+
+```json
+{
+  "model": "sale.order"
+}
+```
+
+### `validate_domain`
+验证 Odoo 搜索域表达式。
+
+```json
+{
+  "model": "res.partner",
+  "domain": [["is_company", "=", true], ["country_id.code", "=", "US"]]
+}
+```
+
+### `server_info`
+获取服务器版本和配置信息。
+
+```json
+{}
+```
+
+### `get_public_config`
+获取公开的（非敏感）服务器配置。
+
+```json
+{}
 ```
 
 ### 智能字段选择

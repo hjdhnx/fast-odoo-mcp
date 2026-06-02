@@ -1,167 +1,89 @@
-﻿# Odoo MCP 工具原理、功能与不足分析报告
+# Odoo MCP 工具原理、功能与不足分析报告
 
-分析对象：`/path/to/fast-odoo-mcp`
+分析对象：`fast-odoo-mcp`
+
+本文档用于说明当前项目的真实定位、技术实现、可用能力、安全边界和不足。结论先行：当前项目是一个 **通用 Odoo ORM/MCP 网关**，适合内部受信场景、开发辅助和受控自动化；不建议把它作为直接开放给外部不受信用户的生产入口。
 
 ## 1. 项目定位
 
-这是一个 **Odoo MCP Server**，作用是把 Odoo ERP 的模型、记录、字段、CRUD 操作封装成 MCP 协议能力，让 Claude、Cursor、Trae、Dify 等 AI 客户端可以通过 MCP 工具调用 Odoo 数据。
+`fast-odoo-mcp` 是一个 Python MCP Server。它把 Odoo 模型、字段、记录和 ORM 方法包装成 MCP tools/resources，让 Claude、Cursor、Trae、Dify 等外部 AI 客户端能够通过自然语言间接访问 Odoo。
 
-从 `README-zh.md:9-11` 和 `pyproject.toml:5-37` 看，它是一个 Python 包，包名为 `fast-odoo-mcp`，依赖：
+项目核心特点：
 
-- `mcp>=1.26.0`
-- `python-dotenv`
-- `pydantic`
-- `pydantic-settings`
-- `httpx`
-
-核心卖点是：
-
-- 不强制安装 Odoo 端插件；
+- 不要求在 Odoo 端安装额外模块；
 - Odoo 14-18 使用 XML-RPC；
 - Odoo 19+ 自动切换到 JSON/2；
-- 暴露通用 Odoo 查询、读取、创建、更新、删除工具；
-- 提供智能字段选择，减少 AI 猜字段和大字段序列化问题。
+- 通过 MCP 暴露查询、读取、字段发现、创建、更新、删除、业务方法调用等能力；
+- 使用智能字段选择减少大字段、HTML、二进制字段和 XML-RPC 序列化问题；
+- 默认只读，支持 HTTP token、模型 allow/block list、写模型白名单等生产保护开关。
 
----
+需要特别注意：它本质上仍然使用服务端配置的 Odoo 凭据访问 Odoo。MCP 客户端一旦连上该服务，就在该服务配置的权限范围内调用 Odoo。因此它不是“多租户外部授权系统”，也不是字段级/方法级/记录域级的独立权限网关。
 
-## 2. 启动与运行原理
+## 2. 启动与运行链路
 
-### 2.1 命令入口
-
-包入口定义在：
-
-- `pyproject.toml:56-57`
+包入口定义在 `pyproject.toml`：
 
 ```toml
 [project.scripts]
 fast-odoo-mcp = "fast_odoo_mcp.__main__:main"
 ```
 
-也就是说可以通过：
+主入口 `fast_odoo_mcp/__main__.py` 负责：
 
-```bash
-python -m fast_odoo_mcp
-```
+- 解析 `--transport`、`--host`、`--port`；
+- 从环境变量或 `.env` 加载配置；
+- 创建 `OdooMCPServer`；
+- 根据 transport 运行 `stdio`、`sse` 或 `streamable-http`。
 
-或安装后：
+当前支持的 transport：
 
-```bash
-fast-odoo-mcp
-```
+- `stdio`：默认模式，适合 Claude Desktop、Cursor、Trae 等本地 MCP 客户端；
+- `streamable-http`：标准 HTTP MCP 传输，适合远程服务化部署；
+- `sse`：仍保留兼容，但 MCP 协议中已逐步弃用，推荐新部署使用 `streamable-http`。
 
-启动。
+HTTP transport 有额外安全校验：
 
-### 2.2 CLI 参数与环境变量
+- 必须显式设置 `ODOO_MCP_HOST` 和 `ODOO_MCP_PORT`；
+- `ODOO_MCP_STRICT_SECURITY=true` 且绑定非本地主机时必须设置 `ODOO_MCP_HTTP_TOKEN`；
+- 绑定 `0.0.0.0` 时也必须提供 token；
+- 可配置 `ODOO_MCP_ALLOWED_HOSTS` 和 `ODOO_MCP_ALLOWED_ORIGINS`。
 
-主入口在：
+## 3. 服务架构
 
-- `fast_odoo_mcp/__main__.py:17-140`
+主服务类在 `fast_odoo_mcp/server.py`。
 
-它支持三种 transport：
+核心组件：
 
-- `stdio`
-- `sse`
-- `streamable-http`
+- `OdooMCPServer`：创建 FastMCP 实例，注册 tools/resources，管理生命周期；
+- `ConnectionManager`：统一维护 Odoo 连接、自动探测 API 版本、重连、并发限制；
+- `AccessController`：基于 Odoo 原生 `check_access_rights` 和本地策略做模型级权限检查；
+- `OdooConnection`：Odoo 14-18 XML-RPC 连接实现；
+- `OdooJSON2Connection`：Odoo 19+ JSON/2 连接实现；
+- `OdooToolHandler`：注册和实现 MCP tools；
+- `OdooResourceHandler`：注册和实现 MCP resources；
+- `PerformanceManager`：字段缓存、连接复用、性能统计。
 
-对应逻辑在：
+服务还提供健康检查端点：
 
-- `fast_odoo_mcp/__main__.py:109-114`
+- `GET /health`
+- `GET /ready`
+- `GET /metrics`
 
-```python
-if config.transport == "stdio":
-    asyncio.run(server.run_stdio())
-elif config.transport == "sse":
-    asyncio.run(server.run_sse(host=config.host, port=config.port))
-elif config.transport == "streamable-http":
-    asyncio.run(server.run_http(host=config.host, port=config.port))
-```
+这些端点用于部署探活和基础运行状态观测。
 
-核心环境变量包括：
+## 4. Odoo 版本兼容
 
-- `ODOO_URL`
-- `ODOO_API_KEY`
-- `ODOO_USER`
-- `ODOO_PASSWORD`
-- `ODOO_DB`
-- `ODOO_YOLO`
-- `ODOO_MCP_TRANSPORT`
-- `ODOO_MCP_HOST`
-- `ODOO_MCP_PORT`
-- `ODOO_MCP_DISABLED_TOOLS`
+版本探测逻辑在 `fast_odoo_mcp/version_detect.py`。服务启动时会调用 Odoo 的 `/xmlrpc/2/common` `version()` 方法读取服务器版本。
 
-配置加载和校验在：
+兼容策略：
 
-- `fast_odoo_mcp/config.py:17-49`
-- `fast_odoo_mcp/config.py:51-114`
-- `fast_odoo_mcp/config.py:170-267`
+- Odoo 14-18：使用 XML-RPC `/xmlrpc/db`、`/xmlrpc/2/common`、`/xmlrpc/2/object`；
+- Odoo 19+：使用 JSON/2 `/json/2/{model}/{method}`；
+- 探测失败：回退 XML-RPC；
+- Odoo 20：需要重点关注 Odoo 官方对 XML-RPC/JSON-RPC 的移除计划，生产上应优先验证 JSON/2 路径。
 
-其中 HTTP transport 要求显式配置 host 和 port，避免误暴露：
+连接协议通过 `fast_odoo_mcp/connection_protocol.py` 抽象，工具层只依赖统一接口：
 
-- `fast_odoo_mcp/config.py:254-265`
-
----
-
-## 3. 服务生命周期与架构
-
-主服务类是：
-
-- `fast_odoo_mcp/server.py:35-324`
-
-### 3.1 FastMCP 初始化
-
-在 `fast_odoo_mcp/server.py:63-68` 创建 `FastMCP`：
-
-```python
-self.app = FastMCP(
-    name="odoo-mcp-server",
-    instructions="MCP server for accessing and managing Odoo ERP data through the Model Context Protocol",
-    lifespan=self._odoo_lifespan,
-)
-```
-
-同时注册了：
-
-- `/health` 健康检查：`server.py:70-74`
-- model 参数补全：`server.py:76-88`
-
-### 3.2 生命周期流程
-
-关键生命周期在：
-
-- `fast_odoo_mcp/server.py:95-115`
-
-首次启动时：
-
-1. `_ensure_connection()` 建立 Odoo 连接；
-2. `_register_resources()` 注册 MCP resources；
-3. `_register_tools()` 注册 MCP tools；
-4. 关闭时 `_cleanup_connection()` 清理连接。
-
-### 3.3 Odoo API 版本自动探测
-
-在：
-
-- `fast_odoo_mcp/server.py:128-145`
-- `fast_odoo_mcp/version_detect.py:33-84`
-
-服务启动时会调用 Odoo `/xmlrpc/2/common` 的 `version()` 判断版本：
-
-- Odoo 19+：使用 JSON/2；
-- Odoo 14-18：使用 XML-RPC；
-- 探测失败：回退 XML-RPC。
-
----
-
-## 4. Odoo 连接层原理
-
-项目抽象了统一连接协议：
-
-- `fast_odoo_mcp/connection_protocol.py:10-68`
-
-它定义了工具层需要的统一接口：
-
-- `connect`
-- `authenticate`
 - `search`
 - `read`
 - `search_read`
@@ -171,836 +93,222 @@ self.app = FastMCP(
 - `create_bulk`
 - `write`
 - `unlink`
+- `execute_kw`
 - `check_access_rights`
 
-这样上层工具不需要关心底层是 XML-RPC 还是 JSON/2。
+这让上层 MCP tools 不需要关心底层是 XML-RPC 还是 JSON/2。
 
-### 4.1 XML-RPC 连接
-
-实现文件：
-
-- `fast_odoo_mcp/odoo_connection.py`
-
-主要面向 Odoo 14-18。
-
-连接端点在：
-
-- `fast_odoo_mcp/config.py:136-155`
-
-```python
-{
-    "db": "/xmlrpc/db",
-    "common": "/xmlrpc/2/common",
-    "object": "/xmlrpc/2/object",
-}
-```
-
-认证策略在：
-
-- `fast_odoo_mcp/odoo_connection.py:684-735`
-
-流程：
-
-1. 自动选择数据库；
-2. 优先尝试 API key；
-3. 先试 `/mcp/auth/validate`；
-4. 如果没有 Odoo MCP 模块，则回退到标准 XML-RPC API key 作为 password；
-5. 再回退用户名密码。
-
-实际执行 ORM 方法在：
-
-- `fast_odoo_mcp/odoo_connection.py:801-853`
-
-调用的是：
-
-```python
-object_proxy.execute_kw(database, uid, password_or_token, model, method, args, kwargs)
-```
-
-常见操作映射：
-
-- search：`odoo_connection.py:855-866`
-- read：`odoo_connection.py:868-888`
-- search_read：`odoo_connection.py:890-910`
-- fields_get：`odoo_connection.py:912-942`
-- create：`odoo_connection.py:980-999`
-- create_bulk：`odoo_connection.py:1004-1024`
-- write：`odoo_connection.py:1029-1050`
-- unlink：`odoo_connection.py:1055-1075`
-
-### 4.2 JSON/2 连接
-
-实现文件：
-
-- `fast_odoo_mcp/odoo_json2_connection.py`
-
-主要面向 Odoo 19+。
-
-JSON/2 特点在文件头说明：
-
-- `odoo_json2_connection.py:24-36`
-
-认证头在：
-
-- `odoo_json2_connection.py:76-89`
-
-```python
-headers = {
-    "Authorization": f"Bearer {self.config.api_key}",
-    "Content-Type": "application/json; charset=utf-8",
-    "User-Agent": "odoo-mcp-pro/1.0 (pnl-e5f1; pantalytics.com)",
-}
-```
-
-数据库通过：
-
-```python
-X-Odoo-Database
-```
-
-传入。
-
-核心请求方法在：
-
-- `odoo_json2_connection.py:91-144`
-
-它把请求发到：
-
-```python
-/json/2/{model}/{method}
-```
-
-认证在：
-
-- `odoo_json2_connection.py:244-287`
-
-它会调用：
-
-```python
-res.users/context_get
-```
-
-确认 API key 能拿到当前用户 UID。
-
-JSON/2 CRUD 映射：
-
-- search：`odoo_json2_connection.py:309-320`
-- read：`odoo_json2_connection.py:322-338`
-- search_read：`odoo_json2_connection.py:340-360`
-- search_count：`odoo_json2_connection.py:362-372`
-- fields_get：`odoo_json2_connection.py:374-403`
-- create：`odoo_json2_connection.py:405-422`
-- create_bulk：`odoo_json2_connection.py:424-439`
-- write：`odoo_json2_connection.py:441-454`
-- unlink：`odoo_json2_connection.py:456-468`
-
----
-
-## 5. MCP 暴露的功能
+## 5. MCP 暴露的能力
 
 ### 5.1 Resources
 
-资源注册在：
+Resources 主要用于按 URI 读取 Odoo 数据：
 
-- `fast_odoo_mcp/resources.py:77-155`
+- `odoo://{model}/record/{record_id}`：读取单条记录；
+- `odoo://{model}/search`：按默认参数搜索模型记录；
+- `odoo://{model}/count`：统计模型记录数；
+- `odoo://{model}/fields`：查看模型字段定义。
 
-当前主要资源模板：
+由于 MCP resource 对复杂查询参数支持有限，复杂搜索、分页、排序和字段选择主要通过 tools 完成。
 
-1. 读取单条记录：
+### 5.2 只读 Tools
 
-```text
-odoo://{model}/record/{record_id}
-```
+当前主要只读工具：
 
-对应：
+- `search_records`：按 domain 搜索记录，支持字段、limit、offset、order；
+- `get_record`：按 ID 读取单条记录，支持智能字段或指定字段；
+- `list_models`：列出可访问模型及操作权限；
+- `get_model_fields`：查看模型字段定义，可按字段名或显示名过滤；
+- `validate_domain`：校验 domain 并返回匹配数量；
+- `list_resource_templates`：列出可用 resource URI 模板；
+- `get_public_config`：返回可公开给 MCP 客户端的运行配置；
+- `server_info`：返回服务版本、连接状态、Odoo API 版本和公司信息；
+- `simulate_onchange`：模拟 Odoo onchange；
+- `get_model_methods`：返回可被 `execute_method` 发现和调用的方法范围。
 
-- `resources.py:89-105`
+### 5.3 写操作 Tools
 
-2. 搜索模型记录：
-
-```text
-odoo://{model}/search
-```
-
-对应：
-
-- `resources.py:108-120`
-
-3. 统计模型记录：
-
-```text
-odoo://{model}/count
-```
-
-对应：
-
-- `resources.py:125-137`
-
-4. 查看模型字段：
-
-```text
-odoo://{model}/fields
-```
-
-对应：
-
-- `resources.py:140-155`
-
-Resources 更适合“按 URI 读数据”，但由于 FastMCP 对查询参数支持有限，复杂搜索主要靠 tools。
-
-### 5.2 Tools
-
-工具注册在：
-
-- `fast_odoo_mcp/tools.py:428-791`
-
-主要工具：
-
-#### 只读工具
-
-1. `search_records`
-
-位置：
-
-- `tools.py:439-477`
-
-功能：
-
-- 按 Odoo domain 搜索记录；
-- 支持字段列表；
-- 支持分页、排序；
-- 默认智能字段选择。
-
-2. `get_record`
-
-位置：
-
-- `tools.py:479-527`
-
-功能：
-
-- 按模型和 ID 读取单条记录；
-- 支持字段选择；
-- 默认返回智能字段；
-- 可用 `fields=["__all__"]` 请求全部字段。
-
-3. `list_models`
-
-位置：
-
-- `tools.py:529-545`
-
-功能：
-
-- 列出可访问模型；
-- 实际会从 `ir.model` 获取模型列表。
-
-4. `list_resource_templates`
-
-位置：
-
-- `tools.py:547-567`
-
-功能：
-
-- 告诉 AI 可用的 resource URI 模板。
-
-5. `server_info`
-
-位置：
-
-- `tools.py:569-620`
-
-功能：
-
-- 返回 MCP 服务版本；
-- Odoo URL；
-- API 版本；
-- 连接状态；
-- 公司信息。
-
-#### 写操作工具
-
-这些默认注册，但可通过 `ODOO_MCP_DISABLED_TOOLS` 禁用。
-
-1. `create_record`
-
-位置：
-
-- `tools.py:624-648`
-
-2. `update_record`
-
-位置：
-
-- `tools.py:650-676`
-
-3. `delete_record`
-
-位置：
-
-- `tools.py:678-702`
-
-4. `create_records`
-
-位置：
-
-- `tools.py:706-734`
-
-5. `update_records`
-
-位置：
-
-- `tools.py:736-765`
-
-6. `delete_records`
-
-位置：
-
-- `tools.py:767-790`
-
-批量上限：
-
-- `tools.py:44`
-
-```python
-MAX_BULK_SIZE = 1000
-```
-
----
-
-## 6. 智能字段选择机制
-
-这是当前项目比较实用的设计。
-
-相关代码：
-
-- `fast_odoo_mcp/tools.py:191-260`
-- `fast_odoo_mcp/tools.py:262-366`
-- `fast_odoo_mcp/tools.py:368-426`
-
-核心逻辑：
-
-1. 总是优先保留：
-   - `id`
-   - `name`
-   - `display_name`
-   - `active`
-
-2. 排除技术字段：
-   - `_` 开头字段；
-   - `message_`；
-   - `activity_`；
-   - `website_message_`；
-   - `write_date`；
-   - `create_date`；
-   - `access_token` 等。
-
-3. 排除大字段或容易出序列化问题的字段：
-   - `binary`
-   - `image`
-   - `html`
-   - `one2many`
-   - `many2many`
-
-4. 根据字段类型和业务关键字打分：
-   - `state`
-   - `status`
-   - `amount`
-   - `date`
-   - `partner`
-   - `email`
-   - `phone`
-   - `company`
-   - `currency`
-   - `ref`
-   - `number`
-
-5. 最多返回 `ODOO_MCP_MAX_SMART_FIELDS` 个字段，默认 15。
-
-这个机制能明显减少 AI 查询 Odoo 时常见的两个问题：
-
-- 猜不存在字段导致 `Invalid field`；
-- 一次读出二进制、HTML、消息追踪字段导致响应巨大或 XML-RPC 序列化失败。
-
----
-
-## 7. 权限与安全机制
-
-### 7.1 依赖 Odoo 原生 ACL
-
-访问控制在：
-
-- `fast_odoo_mcp/access_control.py`
-
-核心是调用 Odoo 的：
-
-```python
-check_access_rights
-```
-
-位置：
-
-- `access_control.py:113-147`
-- `access_control.py:196-223`
-
-每次执行工具前，都会校验：
-
-- read
-- write
-- create
-- unlink
-
-例如：
-
-- 搜索前校验 read：`tools.py:806-807`
-- 创建前校验 create：`tools.py:1095-1096`
-- 更新前校验 write：`tools.py:1167-1168`
-- 删除前校验 unlink：`tools.py:1245-1246`
-
-权限结果缓存 5 分钟：
-
-- `access_control.py:65-66`
-
-```python
-CACHE_TTL = 300
-```
-
-### 7.2 可禁用写工具
-
-配置字段：
-
-- `config.py:45-46`
-- `config.py:247-251`
-
-注册工具时检查：
-
-- `tools.py:431-437`
-
-可以通过：
-
-```bash
-ODOO_MCP_DISABLED_TOOLS="create_record,update_record,delete_record,create_records,update_records,delete_records"
-```
-
-部署成只读模式。
-
-### 7.3 错误脱敏
-
-错误清洗在：
-
-- `fast_odoo_mcp/error_sanitizer.py`
-
-它会移除：
-
-- Python 文件路径；
-- 行号；
-- traceback；
-- 内部模块名；
-- 内存地址；
-- 部分 Odoo 内部异常。
-
-主逻辑：
-
-- `error_sanitizer.py:65-113`
-
-XML-RPC 错误也会清洗：
-
-- `odoo_connection.py:841-845`
-
----
-
-## 8. 性能设计
-
-性能相关文件：
-
-- `fast_odoo_mcp/performance.py`
-
-主要能力：
-
-1. LRU + TTL 缓存：
-
-- `performance.py:83-256`
-
-2. 字段元数据缓存：
-
-- XML-RPC：`odoo_connection.py:924-940`
-- JSON/2：`odoo_json2_connection.py:388-402`
-
-3. 连接池：
-
-- `performance.py` 中有 transport 和连接复用逻辑；
-- `odoo_connection.py:157-165` 使用 `PerformanceManager` 获取优化连接。
-
-4. 查询分页限制：
-
-- 配置默认值：`config.py:32-34`
-- 搜索时限制：`tools.py:862-866`
-
-```python
-if limit <= 0:
-    limit = self.config.default_limit
-elif limit > self.config.max_limit:
-    limit = self.config.max_limit
-```
-
----
-
-## 9. 文档与部署方式
-
-文档比较齐全：
-
-- `README.md`
-- `README-zh.md`
-- `QUICKSTART.md`
-- `DOCKER_GUIDE.md`
-- `dify-start.md`
-- `dify-use.md`
-- `dify-llm.md`
-- `prompt.md`
-
-Dockerfile：
-
-- `Dockerfile:0-30`
-
-它使用 Python 3.12 slim，多阶段构建，最终非 root 用户 `mcp` 运行。
-
-支持部署方式：
-
-1. 本地 stdio；
-2. Cursor / Trae / Claude Desktop command 模式；
-3. SSE；
-4. streamable-http；
-5. Docker；
-6. SSH 远程命令；
-7. Dify HTTP/SSE 接入。
-
----
-
-## 10. 测试覆盖
-
-测试目录较完整：
-
-- `tests/test_access_control.py`
-- `tests/test_authentication.py`
-- `tests/test_basic_resources.py`
-- `tests/test_caching.py`
-- `tests/test_config.py`
-- `tests/test_error_handling.py`
-- `tests/test_error_sanitizer.py`
-- `tests/test_integration_e2e.py`
-- `tests/test_odoo_connection_basic.py`
-- `tests/test_odoo_connection_crud.py`
-- `tests/test_tools.py`
-- `tests/test_transport_integration.py`
-- `tests/test_write_operations.py`
-- `tests/test_xmlrpc_operations.py`
-
-CI 文件：
-
-- `.github/workflows/ci.yml`
-
-覆盖：
-
-- Ruff；
-- ty 类型检查；
-- 单元测试；
-- Odoo 18 + Postgres 集成测试；
-- MCP integration tests。
-
-总体来看，测试覆盖面不错，尤其是连接、权限、缓存、错误清洗、工具行为都有涉及。
-
----
-
-## 11. 当前工具的优势
-
-### 11.1 通用性强
-
-不绑定某个业务模型，不需要为每个 Odoo 模块单独写工具。只要知道模型名和字段，就能操作任意模型。
-
-### 11.2 兼容 Odoo 多版本
-
-通过版本探测自动选择：
-
-- Odoo 14-18：XML-RPC；
-- Odoo 19+：JSON/2。
-
-这对长期维护比较重要。
-
-### 11.3 不强制安装 Odoo 模块
-
-当前版本已经改成主要依赖 Odoo 原生 API。`README-zh.md:11` 明确说明无需安装额外模块。
-
-### 11.4 工具描述中文化
-
-`tools.py` 中工具 docstring 已经中文化，对 Dify、Trae 等中文 Agent 场景友好。
-
-### 11.5 智能字段选择实用
-
-默认不返回全部字段，避免：
-
-- 大字段污染上下文；
-- HTML/binary 序列化失败；
-- AI 猜字段错误后反复重试。
-
-### 11.6 支持只读部署
-
-通过 `ODOO_MCP_DISABLED_TOOLS` 可以把写工具不注册，适合生产只读查询场景。
-
----
-
-## 12. 主要不足与风险
-
-### 12.1 写工具默认启用，生产环境风险较高
-
-虽然可用 `ODOO_MCP_DISABLED_TOOLS` 禁用写工具，但默认情况下：
+写操作默认受 `ODOO_MCP_READONLY=true` 限制。关闭只读模式后，可能注册：
 
 - `create_record`
 - `update_record`
 - `delete_record`
-- 批量 create/update/delete
+- `create_records`
+- `update_records`
+- `delete_records`
 
-都会注册。
+批量操作上限由 `ODOO_MCP_MAX_BULK_SIZE` 控制，当前默认值为 100。
 
-如果接入的是 Dify、Trae、Claude Desktop 这种 Agent，模型误判或提示词注入都可能导致真实 Odoo 数据变更。
+### 5.4 业务方法调用
 
-建议生产默认改为只读，写操作必须显式开启。
+`execute_method` 是高能力工具，可调用 Odoo 模型方法，例如：
 
----
+- `sale.order.action_confirm`
+- `account.move.action_post`
+- `stock.picking.button_validate`
+- `res.partner.toggle_active`
+- `read_group`
+- `name_search`
 
-### 12.2 HTTP/SSE MCP 层缺少独立鉴权
+当前安全策略是：
 
-Odoo 侧有账号/API key，但 HTTP/SSE 暴露出来的 MCP 服务本身没有看到独立认证机制。
+- 方法必须在安全名单内，或以 `action_`、`button_`、`onchange_`、`_onchange_` 等前缀开头；
+- `__dunder__` 方法禁止调用；
+- 只读模式下禁止调用会改变数据的方法；
+- 状态变更类方法要求模型具备写权限，并受 `ODOO_MCP_WRITE_ALLOWLIST` 约束。
 
-也就是说，如果服务用：
+但对外部不受信用户而言，这仍然过宽。业务按钮方法内部可能做复杂副作用，单靠前缀安全名单不足以表达每个外部用户的精细授权。
 
-```bash
---transport sse --host 0.0.0.0 --port 8000
+## 6. 智能字段选择
+
+智能字段选择是当前项目中很实用的 AI 适配能力。默认不盲目返回所有字段，而是根据字段元数据和业务关键字挑选一组较安全、较常用的字段。
+
+默认优先保留：
+
+- `id`
+- `name`
+- `display_name`
+- `active`
+- `company_id`
+
+默认排除：
+
+- `_` 开头字段；
+- `message_`、`activity_`、`website_message_`；
+- `create_uid`、`write_uid`、`create_date`、`write_date`；
+- `access_token`、`access_url` 等敏感或技术字段；
+- `binary`、`image`、`html`；
+- `one2many`、`many2many`；
+- 非存储的昂贵计算字段。
+
+字段会按类型和业务关键词打分，例如 `state`、`status`、`amount`、`date`、`partner`、`email`、`phone`、`company`、`currency`、`ref`、`number` 等。最大返回数量由 `ODOO_MCP_MAX_SMART_FIELDS` 控制，默认 15。
+
+## 7. 当前安全机制
+
+当前代码已经具备一些生产保护能力：
+
+- `ODOO_MCP_READONLY=true`：默认只读，写工具不会注册；
+- `ODOO_MCP_DISABLED_TOOLS`：按工具名禁用能力；
+- `ODOO_MCP_MODEL_ALLOWLIST`：模型访问白名单；
+- `ODOO_MCP_MODEL_BLOCKLIST`：模型访问黑名单；
+- `ODOO_MCP_WRITE_ALLOWLIST`：写操作模型白名单；
+- `ODOO_MCP_HTTP_TOKEN`：HTTP/SSE transport 的 Bearer token；
+- `ODOO_MCP_STRICT_SECURITY=true`：非本地 HTTP 绑定要求 token；
+- `ODOO_MCP_MAX_LIMIT`：单次查询最大返回记录；
+- `ODOO_MCP_MAX_BULK_SIZE`：批量写操作最大记录数；
+- 错误脱敏：清理 traceback、内部路径、部分 Odoo 内部错误；
+- Odoo 原生 `check_access_rights`：按服务端配置用户检查模型级 ACL；
+- Odoo record rules：实际 search/read/write/unlink 时仍由 Odoo 执行记录规则。
+
+这些能力适合把服务部署给内部受信 AI 客户端，或由管理员自己使用。
+
+## 8. 主要不足与风险
+
+### 8.1 不是多外部用户授权系统
+
+当前服务只加载一组 Odoo 凭据。HTTP token 只保护 MCP 服务入口，不能表达“这个外部用户只能访问哪些模型、字段、记录、方法”。
+
+如果多个外部用户共用同一个 MCP 服务，他们本质上共享同一组 Odoo 权限边界。
+
+### 8.2 没有字段级权限
+
+智能字段选择可以减少默认返回字段，但不是安全策略。用户仍可能显式请求字段，当前 MCP 层没有“按 API Key 配置字段白名单”的机制。
+
+### 8.3 没有记录域级授权
+
+Odoo record rule 会生效，但那是服务端配置用户的规则，不是每个外部 API Key 的独立记录域。当前无法做到：
+
+- A 客户只能看自己的 partner；
+- B 客户只能看某个项目；
+- C 客户只能看某个公司下的订单；
+- 同一模型按不同外部用户拼接不同强制 domain。
+
+### 8.4 `execute_method` 对不受信用户风险高
+
+`execute_method` 可以调用业务按钮和动作方法。即使只允许安全前缀，Odoo 业务方法内部仍可能：
+
+- 确认订单；
+- 过账凭证；
+- 验证库存；
+- 发送消息；
+- 触发自动化；
+- 修改关联记录。
+
+对外部用户应该改为“每个方法显式白名单”，而不是使用通用前缀。
+
+### 8.5 模型级 ACL 不等于业务最小授权
+
+`check_access_rights` 只说明当前 Odoo 用户是否有模型级 read/write/create/unlink 权限。AI 应该能做的事通常比这个更窄，例如只读某几个字段、只写某个状态、只调用某个业务按钮。
+
+### 8.6 HTTP token 不是业务权限
+
+`ODOO_MCP_HTTP_TOKEN` 可以避免未授权访问 MCP endpoint，但它不是租户权限模型。token 泄露后，拿到 token 的人可在 MCP 服务配置的 Odoo 权限范围内调用工具。
+
+### 8.7 `list_models` 可能暴露系统结构
+
+当没有模型 allowlist 时，`list_models` 可能从 `ir.model` 返回大量模型信息。对内部调试有用，但对外部用户可能暴露不必要的系统结构。
+
+## 9. 适用场景
+
+适合：
+
+- 开发者本地查询和排查 Odoo 数据；
+- 内部受信团队使用 AI 辅助运营、实施、客服；
+- 只读场景的数据问答；
+- 受控环境下的业务自动化；
+- Dify/Claude/Cursor 等内部工具接入 Odoo。
+
+不适合直接用于：
+
+- 面向外部不受信客户开放；
+- 多客户共用同一个 MCP 服务；
+- API Key 维度的字段级、方法级、记录级权限控制；
+- 需要严格审计和租户隔离的生产开放平台。
+
+## 10. 推荐对外方案
+
+如果要给外部不受信用户使用，推荐新增 Odoo 模块作为权限权威源头，而不是把当前通用 MCP 服务直接暴露出去。
+
+推荐架构：
+
+```text
+外部 AI / CLI / MCP 客户端
+        |
+        | Bearer API Key
+        v
+CLI 或 MCP 适配层
+        |
+        | 只调用受控 REST API
+        v
+Odoo 模块 mcp_api_gateway
+        |
+        | API Key 权限、字段白名单、方法白名单、强制 domain、审计
+        v
+Odoo ORM
 ```
 
-暴露出去，访问 MCP endpoint 的人理论上可以借用服务端配置好的 Odoo 凭据操作 Odoo。
+关键原则：
 
-文档建议用 Nginx/Caddy/SSH，但代码层面没有强制。
+- 外部用户不提供 Odoo 账号密码；
+- 每个外部用户只拿我们发放的 API Key；
+- API Key 权限在 Odoo 后台配置；
+- 模型必须显式授权；
+- 字段必须显式授权；
+- 方法必须显式授权；
+- 搜索 domain 必须和后台强制 domain 合并；
+- 调用日志必须落库；
+- MCP 只做协议包装，不做最终权限裁决。
 
-建议增加：
+详细设计见 `docs/external-access-security-design.md`。
 
-- MCP 层 Bearer token；
-- IP allowlist；
-- 反向代理鉴权；
-- 每个 client 独立 Odoo 凭据，而不是全局凭据。
+## 11. 总体结论
 
----
+当前 `fast-odoo-mcp` 已经是一个功能完整、工程化程度较高的 Odoo MCP 网关：连接、版本兼容、工具注册、智能字段、错误脱敏、只读模式、HTTP token 和基础生产保护都已经具备。
 
-### 12.3 绑定 `0.0.0.0` 时关闭 DNS rebinding protection
+但它的安全模型仍然是“服务端配置一个 Odoo 用户，然后 MCP 客户端共享这个用户的能力”。这对内部使用可以接受；对外部不受信用户不够。
 
-位置：
+最终建议：
 
-- `server.py:233-239`
-- `server.py:262-268`
-
-当 host 是 `0.0.0.0` 时：
-
-```python
-self.app.settings.transport_security.enable_dns_rebinding_protection = False
-```
-
-这解决了部署可访问性问题，但安全性下降。
-
-建议仅在明确配置 `ODOO_MCP_ALLOW_INSECURE_BIND=true` 时允许关闭，或者默认只允许 localhost。
-
----
-
-### 12.4 没有业务级模型白名单
-
-当前 `AccessController.get_enabled_models()` 返回空列表：
-
-- `access_control.py:158-169`
-
-注释含义是“所有模型可访问，由 Odoo ACL 控制”。
-
-这在技术上可用，但在 AI 工具场景下风险偏高。因为 Odoo 用户有权限不代表 AI 应该能操作所有模型，例如：
-
-- `res.users`
-- `ir.config_parameter`
-- `ir.module.module`
-- 会计凭证
-- 工资、人事敏感数据
-- 系统配置模型
-
-建议增加：
-
-```bash
-ODOO_MCP_ALLOWED_MODELS=res.partner,sale.order,crm.lead
-ODOO_MCP_BLOCKED_MODELS=res.users,ir.config_parameter,...
-```
-
-### 12.5 只做模型级 ACL，不做记录规则预判
-
-`check_access_rights` 只检查模型级权限，不等于记录级规则完全通过。
-
-实际 Odoo record rule 仍会在 search/read/write/unlink 时生效，但 MCP 层无法提前解释“为什么某条记录不可见/不可写”。
-
-这会导致 Agent 体验上出现：
-
-- list_models 显示模型可操作；
-- 实际记录操作失败；
-- 错误信息可能被清洗得比较泛化。
-
-### 12.6 批量操作上限 1000 仍然偏大
-
-位置：
-
-- `tools.py:44`
-
-```python
-MAX_BULK_SIZE = 1000
-```
-
-对于 Odoo 来说，批量删除/更新 1000 条生产数据风险很高。尤其 AI Agent 可能误把搜索结果全部传入删除。
-
-建议：
-
-- 默认批量写上限降低到 50 或 100；
-- 删除操作单独更低；
-- 增加 dry-run / confirmation token 机制；
-- 批量写必须显式开启。
-
-### 12.7 domain 字符串解析比较脆弱
-
-位置：
-
-- `tools.py:813-846`
-
-当 domain 是字符串时，会先 `json.loads`，失败后简单把单引号换双引号、`True/False` 换成小写。
-
-这个策略在简单 domain 可用，但复杂情况下可能误处理字符串值中的引号。
-
-建议：
-
-- 明确要求 domain 必须是 JSON array；
-- 或支持 Python literal 用 `ast.literal_eval`；
-- 返回更明确的 domain 示例和错误提示。
-
-### 12.8 `list_models` 可能暴露过多模型信息
-
-位置：
-
-- `tools.py:995-1020`
-
-当 `get_enabled_models()` 为空时，会从 `ir.model` 读取所有非 transient 模型。
-
-这对 AI 很有帮助，但也可能暴露系统结构，包括一些不希望 Agent 看到的模型。
-
-建议和模型白名单/黑名单结合。
-
-### 12.9 JSON/2 权限检查失败时有“放行”逻辑
-
-位置：
-
-- `odoo_json2_connection.py:470-500`
-
-如果 JSON/2 的 `check_access_rights` 返回 Not found，代码会：
-
-```python
-return True
-```
-
-设计意图是让实际操作自己失败，但这意味着 MCP 层权限预检可能过宽。
-
-XML-RPC 也有类似逻辑：
-
-- `odoo_connection.py:944-966`
-- `odoo_connection.py:1080-1102`
-
-除模型不存在外，其他异常会假设允许。
-
-建议安全模式下改为 fail closed，也就是权限检查异常默认拒绝。
-
-### 12.10 配置中 YOLO 概念容易误导
-
-`ODOO_YOLO` 支持：
-
-- `off`
-- `read`
-- `true`
-
-但从当前 `config.py:146-155` 看，无论 yolo 与否都使用标准 Odoo endpoint。文档中 “YOLO 模式” 被描述成“无敌”“允许 AI 无视部分限制”，这在生产语义上容易让用户误配。
-
-建议：
-
-- 文档弱化 YOLO；
-- 默认不要推荐 `ODOO_YOLO=true`；
-- 把生产配置和开发配置分开。
-
----
-
-## 13. 改进建议优先级
-
-### P0：生产安全
-
-1. 默认禁用所有写工具；
-2. 增加 MCP HTTP/SSE 层鉴权；
-3. 加入模型 allowlist / blocklist；
-4. 权限检查异常默认拒绝，而不是默认允许；
-5. 禁止默认公网暴露。
-
-### P1：防误操作
-
-1. 批量写操作上限降低；
-2. 删除操作增加 dry-run；
-3. 写操作返回前要求确认或二阶段提交；
-4. 对高危模型默认禁止写入：
-   - `res.users`
-   - `ir.config_parameter`
-   - `ir.module.module`
-   - `account.move`
-   - `hr.employee`
-   - 薪资相关模型
-
-### P2：AI 使用体验
-
-1. 增强 `list_models`，支持按关键词搜索模型；
-2. 增加 `describe_model` 工具，一次返回模型说明、常用字段、示例 domain；
-3. 增加 domain 校验工具；
-4. 对 Invalid field 错误返回建议字段；
-5. 支持按中文业务名映射模型，例如“客户”→`res.partner`，“销售订单”→`sale.order`。
-
-### P3：可观测性
-
-1. 记录每次 MCP 工具调用的：
-   - tool name；
-   - model；
-   - operation；
-   - record count；
-   - user；
-   - duration；
-   - success/failure；
-2. 写操作单独审计；
-3. 增加 Prometheus metrics 或 structured JSON log；
-4. `/health` 增加 Odoo latency、API version、database、last error。
-
----
-
-## 14. 总体结论
-
-当前目录下的 MCP 工具本质上是一个 **通用 Odoo ORM 网关**：上层用 MCP 暴露 tools/resources，下层通过 XML-RPC 或 JSON/2 调用 Odoo 原生 API，中间用智能字段选择、权限检查、错误清洗和缓存提升 AI 调用的可用性。
-
-它的功能完整度已经比较高，适合：
-
-- 本地开发查询 Odoo 数据；
-- AI 辅助排查业务数据；
-- Dify/Claude/Cursor 接入 Odoo；
-- 快速构建 Odoo 查询型 Agent；
-- 在受控环境下做 CRUD 自动化。
-
-但如果用于生产或团队共享，最大问题是 **安全边界不够强**：
-
-- 写工具默认启用；
-- HTTP/SSE 层没有独立鉴权；
-- 没有模型白名单；
-- 批量写/删能力较强；
-- 权限检查异常时部分逻辑偏向放行。
-
-我的建议是：
-
-**开发环境可以直接使用；生产环境必须先改成“默认只读 + MCP 层鉴权 + 模型白名单 + 写操作二次确认”。**
+- 内部受信场景：继续使用当前 MCP 服务，默认只读，配模型白名单和 HTTP token；
+- 外部不受信场景：不要直接开放当前 MCP 服务；
+- 对外开放能力：新增 `mcp_api_gateway` Odoo 模块做授权源头，再用 CLI/MCP 做轻量适配。

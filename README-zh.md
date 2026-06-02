@@ -13,6 +13,8 @@
 
 **适用于任何 Odoo 实例！** 此修改版本直接使用 Odoo 原生的 XML-RPC 和 JSON/2 接口，这意味着 **不需要在 Odoo 中安装任何模块**。它开箱即用，适用于任何标准 Odoo 安装 (v14.0 到 v19.0+)。
 
+> **生产安全边界:** 本项目是通用 Odoo MCP 网关，适合内部受信用户、开发辅助和受控自动化。不要把这个服务直接开放给外部不受信用户共用；如果需要对外提供 API Key 级别的模型、字段、方法和记录域权限控制，请参考 `docs/external-access-security-design.md`，用 Odoo 模块作为权限权威源头，再用 CLI/MCP 做适配层。
+
 ## 特性
 
 - 🔍 **搜索和检索** 任何 Odoo 记录（客户、产品、发票等）
@@ -26,7 +28,7 @@
 - 🧠 **智能字段选择** — 自动为每个模型挑选最相关的字段
 - 💬 **LLM 优化输出**，采用层次化文本格式
 - 🌍 **多语言支持** — 以您偏好的语言获取响应
-- 🚀 **YOLO 模式**，无需安装模块即可快速访问任何 Odoo 实例
+- 🚀 **开发/测试模式**，无需安装模块即可快速访问任何 Odoo 实例
 
 ## 安装
 
@@ -257,8 +259,11 @@ claude mcp add odoo \
 docker run --rm -p 8000:8000 \
   -e ODOO_URL=http://host.docker.internal:8069 \
   -e ODOO_API_KEY=your-api-key-here \
-  hjdhnx/fast-odoo-mcp --transport streamable-http --host 0.0.0.0
+  -e ODOO_MCP_HTTP_TOKEN=change-this-token \
+  hjdhnx/fast-odoo-mcp --transport streamable-http --host 0.0.0.0 --port 8000
 ```
+
+> **注意:** HTTP 传输绑定 `0.0.0.0` 时必须设置 `ODOO_MCP_HTTP_TOKEN`。这个 token 只保护 MCP 入口，不等于业务权限；外部不受信用户仍不应直接共用这个通用 MCP 服务。
 
 镜像也可在 GHCR 上获取: `ghcr.io/hjdhnx/fast-odoo-mcp`
 </details>
@@ -355,16 +360,20 @@ uvx fast-odoo-mcp
 
 ```bash
 # 使用 HTTP 传输运行
+export ODOO_MCP_HTTP_TOKEN=change-this-token
 uvx fast-odoo-mcp --transport streamable-http --host 0.0.0.0 --port 8000
 
 # 或使用环境变量
 export ODOO_MCP_TRANSPORT=streamable-http
 export ODOO_MCP_HOST=0.0.0.0
 export ODOO_MCP_PORT=8000
+export ODOO_MCP_HTTP_TOKEN=change-this-token
 uvx fast-odoo-mcp
 ```
 
 HTTP 端点将在以下地址可用: `http://localhost:8000/mcp/`
+
+> **安全提示:** HTTP 传输适合内部网络、反向代理或受控部署。对外暴露时必须使用 HTTPS、强 token、模型白名单和只读模式；不要把它作为多外部客户共享的权限网关。
 
 > **注意**: SSE (Server-Sent Events) 传输已在 MCP 协议版本 2025-03-26 中弃用。请改用 streamable-http 传输进行基于 HTTP 的通信。需要 MCP 库 v1.9.4 或更高版本才能进行适当的会话管理。
 
@@ -395,14 +404,16 @@ HTTP 端点将在以下地址可用: `http://localhost:8000/mcp/`
 您的访问权限完全由您提供的标准 Odoo 用户凭据（`ODOO_USER` 和 `ODOO_PASSWORD`）决定。MCP 服务器将自动继承该用户的访问权限、记录规则和模型权限。
 
 - **建议:** 在您的 Odoo 实例中创建一个专用的 "MCP API 用户"，并仅分配 AI 执行任务所需的特定访问权限（群组）。
+- **外部用户:** 不建议让外部不受信用户直接连接这个通用 MCP 服务。此服务没有每个外部 API Key 的字段级、方法级和记录域级授权。需要对外开放时，应在 Odoo 中做授权模块，由模块按 API Key 裁决权限，MCP/CLI 只调用该模块提供的受控 API。
 
 ### 🔒 只读模式与工具禁用
 
-如果你希望 MCP 服务**只允许查询，禁止增删改**（防止 AI 滥用导致数据被误操作），可以通过环境变量 `ODOO_MCP_DISABLED_TOOLS` 来禁用指定的工具：
+默认配置 `ODOO_MCP_READONLY=true` 会阻止所有写操作工具注册。如果你还希望显式禁用指定工具，也可以使用 `ODOO_MCP_DISABLED_TOOLS`：
 
 ```bash
 # Docker 示例：禁用所有写操作工具（只读模式）
 docker run -d --name odoo-mcp-server \
+  -e ODOO_MCP_READONLY=true \
   -e ODOO_MCP_DISABLED_TOOLS="create_record,update_record,delete_record,create_records,update_records,delete_records" \
   ...其他参数...
 ```
@@ -656,19 +667,22 @@ docker run -d --name odoo-mcp-server \
 AI 助手 (Claude, Copilot 等)
         ↓ MCP 协议 (stdio 或 HTTP)
    fast-odoo-mcp
-        ↓ XML-RPC
+        ↓ XML-RPC 或 JSON/2
    Odoo 实例
 ```
 
-服务器将 MCP 工具调用转换为 Odoo XML-RPC 请求。它处理身份验证、访问控制、字段选择、数据格式化和错误处理 — 将 Odoo 数据以对 LLM 友好的层次化文本格式呈现。
+服务器将 MCP 工具调用转换为 Odoo XML-RPC 或 JSON/2 请求。它处理身份验证、访问控制、字段选择、数据格式化和错误处理 — 将 Odoo 数据以对 LLM 友好的层次化文本格式呈现。
 
 ## 安全性
 
-- 在生产环境中始终使用 HTTPS
-- 确保您的 API Key 安全并定期轮换
-- 谨慎配置模型访问权限 - 仅启用必要的模型
-- MCP 模块（如果您选择使用的话）遵循 Odoo 内置的访问权限和记录规则，但是 **在不安装模块的情况下直接使用原生的 XML-RPC** 同样安全地遵循了所有规则。
-- 每个 API Key 都与具有特定权限的特定用户相关联
+- 在生产环境中始终使用 HTTPS，并避免把 HTTP transport 裸露到公网。
+- 保持 `ODOO_MCP_READONLY=true`，除非你明确需要写操作。
+- 使用 `ODOO_MCP_HTTP_TOKEN` 保护 HTTP MCP 入口，并定期轮换。
+- 使用 `ODOO_MCP_MODEL_ALLOWLIST`、`ODOO_MCP_MODEL_BLOCKLIST` 和 `ODOO_MCP_WRITE_ALLOWLIST` 缩小可访问模型范围。
+- 创建专用的低权限 Odoo 用户或 API Key，不要使用管理员账号连接 MCP。
+- 谨慎启用 `execute_method`，它可能触发 Odoo 业务按钮和状态变更。
+- 当前服务继承的是服务端配置 Odoo 用户的权限，不提供每个外部客户独立的字段级、方法级、记录域级授权。
+- 如果要给外部不受信用户使用，推荐实现 Odoo 端授权模块，例如 `mcp_api_gateway`，再让 MCP/CLI 调用该模块的受控 API。详见 `docs/external-access-security-design.md`。
 
 ## 故障排除
 

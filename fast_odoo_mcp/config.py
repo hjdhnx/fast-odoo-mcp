@@ -274,7 +274,7 @@ def load_config(env_file: Optional[Path] = None) -> OdooConfig:
 
     # Create configuration
     config = OdooConfig(
-        url=os.getenv("ODOO_URL", "").strip(),
+        url=os.getenv("ODOO_URL", "").strip().rstrip("/"),
         api_key=os.getenv("ODOO_API_KEY", "").strip() or None,
         username=os.getenv("ODOO_USER", "").strip() or None,
         password=os.getenv("ODOO_PASSWORD", "").strip() or None,

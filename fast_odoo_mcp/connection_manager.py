@@ -109,6 +109,11 @@ class ConnectionManager:
                     return func()
             except OdooConnectionError as exc:
                 self._record_error(exc)
+                # Skip retry for server-side serialization errors (e.g. method
+                # returns None but Odoo's XML-RPC responder lacks allow_none).
+                # These are deterministic, not transient.
+                if "cannot marshal None" in str(exc):
+                    raise
                 with self._lock:
                     self._retry_count += 1
                 # Only reconnect if connection is actually broken;

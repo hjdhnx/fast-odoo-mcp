@@ -6,7 +6,7 @@ import asyncio
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Callable, Literal, Optional, TypeVar
 
 from .access_control import AccessController
 from .config import OdooConfig
@@ -19,6 +19,7 @@ from .version_detect import detect_api_version
 logger = get_logger(__name__)
 
 T = TypeVar("T")
+OperationClass = Literal["light", "heavy", "write"]
 
 
 class _ConnectionProxy:
@@ -54,7 +55,11 @@ class ConnectionManager:
     def __init__(self, config: OdooConfig):
         self.config = config
         self._lock = threading.RLock()
-        self._op_semaphore = threading.Semaphore(self._MAX_CONCURRENT_OPS)
+        self._op_semaphores: dict[OperationClass, threading.Semaphore] = {
+            "light": threading.Semaphore(config.light_concurrency),
+            "heavy": threading.Semaphore(config.heavy_concurrency),
+            "write": threading.Semaphore(config.write_concurrency),
+        }
         self.connection: Optional[OdooConnection | OdooJSON2Connection] = None
         self.access_controller: Optional[AccessController] = None
         self.performance_manager: Optional[PerformanceManager] = None
@@ -100,10 +105,20 @@ class ConnectionManager:
             self._connect_locked()
             return self.connection, self.access_controller  # type: ignore[return-value]
 
-    def call_with_retry(self, operation_name: str, func: Callable[[], T]) -> T:
+    def call_with_retry(self, operation_name: str, func: Callable[[], T], *, operation_class: OperationClass = "light") -> T:
         with self._lock:
             self._operation_count += 1
-        with self._op_semaphore:
+        semaphore = self._op_semaphores[operation_class]
+        wait_started = time.monotonic()
+        with semaphore:
+            wait_seconds = time.monotonic() - wait_started
+            if wait_seconds > 1:
+                logger.warning(
+                    "Odoo operation waited %.1fs in %s queue: %s",
+                    wait_seconds,
+                    operation_class,
+                    operation_name,
+                )
             try:
                 with perf_logger.track_operation(operation_name):
                     return func()
@@ -128,8 +143,8 @@ class ConnectionManager:
                 with perf_logger.track_operation(f"{operation_name}_retry"):
                     return func()
 
-    async def run_blocking(self, operation_name: str, func: Callable[[], T]) -> T:
-        return await asyncio.to_thread(self.call_with_retry, operation_name, func)
+    async def run_blocking(self, operation_name: str, func: Callable[[], T], *, operation_class: OperationClass = "light") -> T:
+        return await asyncio.to_thread(self.call_with_retry, operation_name, func, operation_class=operation_class)
 
     def close(self) -> None:
         with self._lock:

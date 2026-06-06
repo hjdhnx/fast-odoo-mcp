@@ -14,7 +14,7 @@ from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 from xmlrpc.client import SafeTransport, ServerProxy, Transport
 
 from .config import OdooConfig
@@ -132,8 +132,8 @@ class Cache:
             ttl_seconds: Time to live in seconds
         """
         with self._lock:
-            # Calculate size (rough estimate)
-            size_bytes = len(json.dumps(value, default=str).encode())
+            # Estimate size without expensive json.dumps serialization
+            size_bytes = self._estimate_size(value)
 
             # Check memory limit
             if self._stats.total_size_bytes + size_bytes > self._max_memory_bytes:
@@ -255,6 +255,44 @@ class Cache:
             key = next(iter(self._cache))
             self._remove(key, reason)
 
+    @staticmethod
+    def _estimate_size(value: Any) -> int:
+        """Estimate memory size of a value in bytes without full serialization.
+
+        Uses lightweight heuristics based on Python type sizes rather than
+        the expensive json.dumps(value, default=str).encode() approach.
+
+        Args:
+            value: The value to estimate size for.
+
+        Returns:
+            Estimated size in bytes.
+        """
+        if value is None:
+            return 16
+        if isinstance(value, bool):
+            return 28
+        if isinstance(value, int):
+            return 28 + (value.bit_length() // 8 if value > 0 else 0)
+        if isinstance(value, float):
+            return 24
+        if isinstance(value, str):
+            return len(value.encode("utf-8", errors="replace")) + 49
+        if isinstance(value, (list, tuple)):
+            return sum(Cache._estimate_size(item) for item in value) + 56
+        if isinstance(value, dict):
+            return (
+                sum(
+                    Cache._estimate_size(k) + Cache._estimate_size(v)
+                    for k, v in value.items()
+                )
+                + 64
+            )
+        if isinstance(value, set):
+            return sum(Cache._estimate_size(item) for item in value) + 64
+        # Fallback for other types: rough estimate based on repr
+        return len(repr(value).encode("utf-8", errors="replace")) + 32
+
 
 class OdooTransport(Transport):
     """HTTP transport that injects X-Odoo-Database header for multi-DB routing."""
@@ -288,12 +326,8 @@ class ConnectionPool:
     def __init__(self, config: OdooConfig, max_connections: int = 10):
         self.config = config
         self.max_connections = max_connections
-        self._pool: Dict[str, Tuple[ServerProxy, float]] = {}
         self._lock = threading.RLock()
-        if config.url.startswith("https://"):
-            self._transport: Union[OdooTransport, OdooSafeTransport] = OdooSafeTransport()
-        else:
-            self._transport = OdooTransport()
+        self._database: Optional[str] = None
         self._last_cleanup = time.time()
         self._stats = {
             "connections_created": 0,
@@ -304,46 +338,14 @@ class ConnectionPool:
 
     def get_connection(self, endpoint: str) -> ServerProxy:
         with self._lock:
-            now = time.time()
-
-            if now - self._last_cleanup > 60:
-                self._cleanup_stale_connections()
-                self._last_cleanup = now
-
-            entry = self._pool.get(endpoint)
-            if entry is not None:
-                conn, last_used = entry
-                if now - last_used < 300:
-                    self._pool[endpoint] = (conn, now)
-                    self._stats["connections_reused"] += 1
-                    logger.debug(f"Reusing connection for {endpoint}")
-                    return conn
-                else:
-                    del self._pool[endpoint]
-                    self._stats["connections_closed"] += 1
-
-            if len(self._pool) >= self.max_connections:
-                oldest_key = min(self._pool, key=lambda k: self._pool[k][1])
-                del self._pool[oldest_key]
-                self._stats["connections_closed"] += 1
-
-            url = f"{self.config.url}{endpoint}"
-            conn = ServerProxy(url, transport=self._transport, allow_none=True)
-            self._pool[endpoint] = (conn, now)
             self._stats["connections_created"] += 1
-            self._stats["active_connections"] = len(self._pool)
-            logger.debug(f"Created new connection for {endpoint}")
-            return conn
-
-    def _cleanup_stale_connections(self):
-        now = time.time()
-        stale_keys = [k for k, (_, t) in self._pool.items() if now - t >= 300]
-        for k in stale_keys:
-            del self._pool[k]
-            self._stats["connections_closed"] += 1
-        if stale_keys:
-            self._stats["active_connections"] = len(self._pool)
-            logger.debug(f"Cleaned up {len(stale_keys)} stale connections")
+            logger.debug(f"Created isolated connection for {endpoint}")
+        url = f"{self.config.url}{endpoint}"
+        if self.config.url.startswith("https://"):
+            transport: Union[OdooTransport, OdooSafeTransport] = OdooSafeTransport(database=self._database)
+        else:
+            transport = OdooTransport(database=self._database)
+        return ServerProxy(url, transport=transport, allow_none=True)
 
     def get_stats(self) -> Dict[str, Any]:
         with self._lock:
@@ -351,16 +353,12 @@ class ConnectionPool:
 
     def set_database(self, db_name: str) -> None:
         with self._lock:
-            self._transport.database = db_name
-            self._stats["connections_closed"] += len(self._pool)
-            self._pool.clear()
+            self._database = db_name
             self._stats["active_connections"] = 0
-            logger.debug(f"Set database header to '{db_name}', cleared connection pool")
+            logger.debug(f"Set database header to '{db_name}'")
 
     def clear(self):
         with self._lock:
-            self._stats["connections_closed"] += len(self._pool)
-            self._pool.clear()
             self._stats["active_connections"] = 0
 
 

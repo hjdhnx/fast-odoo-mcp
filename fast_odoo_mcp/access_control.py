@@ -86,6 +86,7 @@ class AccessController:
             "action_done",
             "action_cancel",
             "action_confirm",
+            "action_confirm_assign",
             "action_validate",
             "action_close",
             "action_draft",

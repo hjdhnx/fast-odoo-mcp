@@ -10,6 +10,7 @@ Reference: https://www.odoo.com/documentation/19.0/developer/reference/external_
 """
 
 import logging
+import threading
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
 
@@ -66,8 +67,9 @@ class OdooJSON2Connection:
         self._database: Optional[str] = None
         self._version: Optional[Dict[str, Any]] = None
 
-        # httpx client (created on connect)
-        self._client: Optional[httpx.Client] = None
+        # httpx clients are created per worker thread; httpx.Client is sync and
+        # should not be shared across asyncio.to_thread workers.
+        self._thread_local = threading.local()
 
         # Field cache
         self._fields_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
@@ -105,9 +107,10 @@ class OdooJSON2Connection:
         Raises:
             OdooConnectionError: If the request fails
         """
-        if not self._client:
+        if not self._connected:
             raise OdooConnectionError("Not connected. Call connect() first.")
 
+        client = self._get_client()
         url = f"{self._json2_url}/{model}/{method}"
 
         body = {k: v for k, v in kwargs.items() if v is not None}
@@ -122,7 +125,7 @@ class OdooJSON2Connection:
         logger.debug(f"JSON/2 call: POST {url} body={body}")
 
         try:
-            response = self._client.post(url, json=body)
+            response = client.post(url, json=body, headers=self._build_headers())
         except httpx.TimeoutException:
             raise OdooConnectionError(
                 f"Request timeout after {self.timeout}s: {model}/{method}"
@@ -169,6 +172,16 @@ class OdooJSON2Connection:
         except Exception:
             return ErrorSanitizer.sanitize_message(response.text[:200])
 
+    def _get_client(self) -> httpx.Client:
+        client = getattr(self._thread_local, "client", None)
+        if client is None:
+            client = httpx.Client(
+                timeout=self.timeout,
+                follow_redirects=True,
+            )
+            self._thread_local.client = client
+        return client
+
     # --- Connection lifecycle ---
 
     def connect(self) -> None:
@@ -185,10 +198,7 @@ class OdooJSON2Connection:
             return
 
         try:
-            self._client = httpx.Client(
-                timeout=self.timeout,
-                follow_redirects=True,
-            )
+            self._get_client()
 
             # Test connection by fetching server version
             self._version = self._fetch_version()
@@ -214,7 +224,7 @@ class OdooJSON2Connection:
             OdooConnectionError: If request fails
         """
         try:
-            response = self._client.get(f"{self._base_url}/web/version")
+            response = self._get_client().get(f"{self._base_url}/web/version")
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as e:
@@ -239,13 +249,14 @@ class OdooJSON2Connection:
         logger.info("Disconnected from Odoo server")
 
     def _cleanup_client(self) -> None:
-        """Close the httpx client if open."""
-        if self._client:
+        """Close the current thread's httpx client if open."""
+        client = getattr(self._thread_local, "client", None)
+        if client:
             try:
-                self._client.close()
+                client.close()
             except Exception:
                 pass
-            self._client = None
+            self._thread_local.client = None
 
     def authenticate(self, database: Optional[str] = None) -> None:
         """Authenticate with Odoo using Bearer token.
@@ -272,7 +283,7 @@ class OdooJSON2Connection:
         self._database = database or self.config.database
 
         # Update client headers now that we have the database
-        self._client.headers.update(self._build_headers())
+        self._get_client().headers.update(self._build_headers())
 
         # Get UID by calling res.users/context_get
         try:

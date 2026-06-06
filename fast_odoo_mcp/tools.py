@@ -17,7 +17,7 @@ from mcp.types import ToolAnnotations
 
 from .access_control import AccessControlError, AccessController
 from .config import OdooConfig
-from .connection_manager import ConnectionManager
+from .connection_manager import ConnectionManager, OperationClass
 from .connection_protocol import OdooConnectionProtocol
 from .error_handling import (
     NotFoundError,
@@ -72,23 +72,28 @@ class OdooToolHandler:
             self.connection = connection
         self.access_controller = access_controller
         self.config = config
+        self._perf_manager = None
 
         self._register_tools()
 
     @property
     def perf_manager(self):
+        if self._perf_manager is not None:
+            return self._perf_manager
         from .performance import PerformanceManager
 
         if (
             self.connection_manager is not None
             and self.connection_manager.performance_manager is not None
         ):
-            return self.connection_manager.performance_manager
-        if self.connection is not None and hasattr(self.connection, "performance_manager"):
-            return self.connection.performance_manager
-        if self.config is not None:
-            return PerformanceManager(self.config)
-        return PerformanceManager(OdooConfig(url="http://localhost:8069"))
+            self._perf_manager = self.connection_manager.performance_manager
+        elif self.connection is not None and hasattr(self.connection, "performance_manager"):
+            self._perf_manager = self.connection.performance_manager
+        elif self.config is not None:
+            self._perf_manager = PerformanceManager(self.config)
+        else:
+            self._perf_manager = PerformanceManager(OdooConfig(url="http://localhost:8069"))
+        return self._perf_manager
 
     async def _get_user_context(
         self,
@@ -144,9 +149,9 @@ class OdooToolHandler:
         except Exception:
             return "invalid url"
 
-    async def _odoo_call(self, operation_name: str, func):
+    async def _odoo_call(self, operation_name: str, func, operation_class: OperationClass = "light"):
         if self.connection_manager is not None:
-            return await self.connection_manager.run_blocking(operation_name, func)
+            return await self.connection_manager.run_blocking(operation_name, func, operation_class=operation_class)
         return func()
 
     def _format_datetime(self, value: str) -> str:
@@ -522,6 +527,7 @@ class OdooToolHandler:
             limit: int = configured_default_limit,
             offset: int = 0,
             order: Optional[str] = None,
+            include_total: bool = True,
         ) -> SearchResult:
             """在Odoo模型中搜索记录。
 
@@ -539,11 +545,12 @@ class OdooToolHandler:
                 limit: 返回记录的最大数量；省略时使用服务端 ODOO_MCP_DEFAULT_LIMIT，超过 ODOO_MCP_MAX_LIMIT 时会被截断
                 offset: 跳过的记录数量
                 order: 排序方式 (例如 'name asc')
+                include_total: 是否额外执行 search_count 返回总数；大量查询可设为 false 以减少一次 Odoo RPC
 
             Returns:
                 搜索结果，包含记录、总数和分页信息
             """
-            result = await self._handle_search_tool(model, domain, fields, limit, offset, order)
+            result = await self._handle_search_tool(model, domain, fields, limit, offset, order, include_total)
             return SearchResult(**result)
 
         @self.app.tool(
@@ -1133,6 +1140,7 @@ class OdooToolHandler:
         limit: int,
         offset: int,
         order: Optional[str],
+        include_total: bool = True,
     ) -> Dict[str, Any]:
         """Handle search tool request."""
         try:
@@ -1154,11 +1162,13 @@ class OdooToolHandler:
 
                 limit = self._normalize_limit(limit)
 
-                # Get total count
-                total_count = await self._odoo_call(
-                    "tool_search_count",
-                    lambda: connection.search_count(model, parsed_domain),
-                )
+                total_count = None
+                if include_total:
+                    total_count = await self._odoo_call(
+                        "tool_search_count",
+                        lambda: connection.search_count(model, parsed_domain),
+                        operation_class="heavy",
+                    )
 
                 # Determine which fields to fetch (before search_read)
                 fields_to_fetch = parsed_fields
@@ -1173,24 +1183,28 @@ class OdooToolHandler:
 
                 # Search + read in one RPC call (was 2 separate calls: search + read)
                 records = []
-                if total_count > 0:
-                    search_kwargs = {}
-                    if limit is not None:
-                        search_kwargs["limit"] = limit
-                    if offset is not None:
-                        search_kwargs["offset"] = offset
-                    if order:
-                        search_kwargs["order"] = order
+                search_kwargs = {}
+                if limit is not None:
+                    search_kwargs["limit"] = limit
+                if offset is not None:
+                    search_kwargs["offset"] = offset
+                if order:
+                    search_kwargs["order"] = order
 
-                    records = await self._odoo_call(
-                        "tool_search_read",
-                        lambda: connection.search_read(
-                            model, parsed_domain, fields=fields_to_fetch, **search_kwargs
-                        ),
-                    )
-                    records = [
-                        self._process_record_dates(record, model, connection) for record in records
-                    ]
+                operation_class = "heavy" if limit >= 50 or parsed_fields == ["__all__"] else "light"
+                records = await self._odoo_call(
+                    "tool_search_read",
+                    lambda: connection.search_read(
+                        model, parsed_domain, fields=fields_to_fetch, **search_kwargs
+                    ),
+                    operation_class=operation_class,
+                )
+                records = [
+                    self._process_record_dates(record, model, connection) for record in records
+                ]
+
+                if total_count is None:
+                    total_count = offset + len(records)
 
                 return {
                     "records": records,
@@ -1488,6 +1502,7 @@ class OdooToolHandler:
                 record_id = await self._odoo_call(
                     "tool_create_record_create",
                     lambda: connection.create(model, values),
+                    operation_class="write",
                 )
 
                 # Return only essential fields to minimize context usage
@@ -1578,6 +1593,7 @@ class OdooToolHandler:
                 success = await self._odoo_call(
                     "tool_update_record_write",
                     lambda: connection.write(model, [record_id], values),
+                    operation_class="write",
                 )
 
                 # Return only essential fields to minimize context usage
@@ -1669,6 +1685,7 @@ class OdooToolHandler:
                 success = await self._odoo_call(
                     "tool_delete_record_unlink",
                     lambda: connection.unlink(model, [record_id]),
+                    operation_class="write",
                 )
 
                 return {
@@ -1719,6 +1736,7 @@ class OdooToolHandler:
                 created_ids = await self._odoo_call(
                     "tool_create_records_bulk",
                     lambda: connection.create_bulk(model, vals_list),
+                    operation_class="write",
                 )
 
                 return {
@@ -1766,6 +1784,7 @@ class OdooToolHandler:
                 await self._odoo_call(
                     "tool_update_records_bulk",
                     lambda: connection.write(model, record_ids, values),
+                    operation_class="write",
                 )
 
                 for rid in record_ids:
@@ -1813,6 +1832,7 @@ class OdooToolHandler:
                 await self._odoo_call(
                     "tool_delete_records_bulk",
                     lambda: connection.unlink(model, record_ids),
+                    operation_class="write",
                 )
 
                 for rid in record_ids:
@@ -1873,6 +1893,7 @@ class OdooToolHandler:
                         lambda m=model, mt=method, a=rpc_args, k=rpc_kwargs: connection.execute_kw(
                             m, mt, a, k
                         ),
+                        operation_class="write" if method in {"create", "write", "unlink"} or method.startswith("action_") else "heavy",
                     )
                 except OdooConnectionError as rpc_err:
                     none_hint = "cannot marshal None" in str(rpc_err)
@@ -1963,6 +1984,7 @@ class OdooToolHandler:
                     lambda: connection.execute_kw(
                         model, "onchange", onchange_args, onchange_kwargs
                     ),
+                    operation_class="heavy",
                 )
 
                 onchange_value = None

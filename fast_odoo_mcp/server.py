@@ -214,15 +214,14 @@ class OdooMCPServer:
                 self.connection_manager.connection_proxy if self.connection_manager else None
             )
             ac = self.access_controller
-            if conn and ac:
-                self.resource_handler = register_resources(
-                    self.app,
-                    conn,
-                    ac,
-                    self.config,
-                    connection_manager=self.connection_manager,
-                )
-                logger.info("Registered MCP resources")
+            self.resource_handler = register_resources(
+                self.app,
+                conn,
+                ac,
+                self.config,
+                connection_manager=self.connection_manager,
+            )
+            logger.info("Registered MCP resources")
 
     def _register_tools(self):
         """Register tool handlers."""

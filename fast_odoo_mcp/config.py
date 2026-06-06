@@ -55,6 +55,9 @@ class OdooConfig:
     http_token: Optional[str] = None
     strict_security: bool = True
     max_workers: int = 20
+    light_concurrency: int = 12
+    heavy_concurrency: int = 3
+    write_concurrency: int = 2
     allowed_hosts: FrozenSet[str] = frozenset()
     allowed_origins: FrozenSet[str] = frozenset()
     stateless_http: bool = True
@@ -113,6 +116,10 @@ class OdooConfig:
 
         if self.max_workers <= 0:
             raise ValueError("ODOO_MCP_MAX_WORKERS must be positive")
+
+        for name in ("light_concurrency", "heavy_concurrency", "write_concurrency"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"ODOO_MCP_{name.upper()} must be positive")
 
         # Validate security-sensitive transport settings
         local_hosts = {"localhost", "127.0.0.1", "::1"}
@@ -301,6 +308,9 @@ def load_config(env_file: Optional[Path] = None) -> OdooConfig:
         http_token=os.getenv("ODOO_MCP_HTTP_TOKEN", "").strip() or None,
         strict_security=get_bool_env("ODOO_MCP_STRICT_SECURITY", True),
         max_workers=get_int_env("ODOO_MCP_MAX_WORKERS", 20),
+        light_concurrency=get_int_env("ODOO_MCP_LIGHT_CONCURRENCY", 12),
+        heavy_concurrency=get_int_env("ODOO_MCP_HEAVY_CONCURRENCY", 3),
+        write_concurrency=get_int_env("ODOO_MCP_WRITE_CONCURRENCY", 2),
         allowed_hosts=get_set_env("ODOO_MCP_ALLOWED_HOSTS"),
         allowed_origins=get_set_env("ODOO_MCP_ALLOWED_ORIGINS"),
         stateless_http=get_bool_env("ODOO_MCP_STATELESS_HTTP", True),

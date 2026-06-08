@@ -93,6 +93,9 @@ cover/
 *.mo
 *.pot
 
+# Online deployment
+docker-compose-online.yml
+
 # Environments
 .env
 .env.local

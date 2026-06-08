@@ -68,12 +68,12 @@
       retries: 3
       start_period: 30s
 
-  odoo-mcp-server-client-a:
+  odoo-mcp-server-client-d:
     image: my-odoo-mcp:latest
-    container_name: odoo-mcp-server-client-a
+    container_name: odoo-mcp-server-client-d
     restart: unless-stopped
     env_file:
-      - .env.client-a
+      - .env.client-d
     environment:
       ODOO_MCP_TRANSPORT: streamable-http
       ODOO_MCP_HOST: 0.0.0.0

@@ -1129,7 +1129,7 @@ class OdooConnection:
                     "method": "call",
                     "params": {
                         "db": self._database,
-                        "login": self.config.user,
+                        "login": self.config.username,
                         "password": password,
                     },
                 }

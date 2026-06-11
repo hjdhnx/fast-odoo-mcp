@@ -1096,6 +1096,75 @@ class OdooConnection:
             logger.error(f"Failed to get server version: {e}")
             return None
 
+    def call_json_endpoint(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Any:
+        """Call an Odoo HTTP JSON endpoint (e.g., /web/approval/commit_approval).
+
+        This method authenticates via Odoo's web session and then calls the
+        specified JSON endpoint. Useful for controller methods that require
+        HTTP request context (request.env) which is unavailable via XML-RPC.
+
+        Args:
+            endpoint: The JSON endpoint path (e.g., '/web/approval/commit_approval')
+            params: Optional dict of parameters to send as JSON body
+
+        Returns:
+            The JSON response from the endpoint
+
+        Raises:
+            OdooConnectionError: If the call fails
+        """
+        import httpx
+
+        if not self._connected or not self._database:
+            raise OdooConnectionError("Not connected to Odoo. Call connect() first.")
+
+        base_url = self.config.url.rstrip("/")
+        password = self.config.api_key or self.config.password
+
+        try:
+            with httpx.Client(timeout=self.timeout, verify=False) as client:
+                # Step 1: Authenticate to get session cookie
+                auth_payload = {
+                    "jsonrpc": "2.0",
+                    "method": "call",
+                    "params": {
+                        "db": self._database,
+                        "login": self.config.user,
+                        "password": password,
+                    },
+                }
+                auth_resp = client.post(f"{base_url}/web/session/authenticate", json=auth_payload)
+                auth_data = auth_resp.json()
+
+                if not auth_data.get("result", {}).get("uid"):
+                    error = auth_data.get("error", {})
+                    raise OdooConnectionError(
+                        f"JSON endpoint auth failed: {error.get('message', 'Unknown error')}"
+                    )
+
+                # Step 2: Call the target endpoint with session cookie
+                call_payload = {
+                    "jsonrpc": "2.0",
+                    "method": "call",
+                    "params": params or {},
+                }
+                resp = client.post(f"{base_url}{endpoint}", json=call_payload)
+                data = resp.json()
+
+                if "error" in data:
+                    error = data["error"]
+                    msg = error.get("data", {}).get("message", error.get("message", str(error)))
+                    raise OdooConnectionError(f"JSON endpoint error: {msg}")
+
+                return data.get("result")
+
+        except httpx.HTTPError as e:
+            raise OdooConnectionError(f"HTTP error calling JSON endpoint: {e}") from e
+        except OdooConnectionError:
+            raise
+        except Exception as e:
+            raise OdooConnectionError(f"Failed to call JSON endpoint: {e}") from e
+
 
 @contextmanager
 def create_connection(config: OdooConfig, timeout: int = OdooConnection.DEFAULT_TIMEOUT):

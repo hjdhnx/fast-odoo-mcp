@@ -406,6 +406,49 @@ class AccessController:
 
         return True, None
 
+    def validate_json_endpoint(self, endpoint: str) -> Tuple[bool, Optional[str]]:
+        """Validate whether a JSON endpoint can be called.
+
+        Args:
+            endpoint: The endpoint path (e.g., '/web/approval/commit_approval')
+
+        Returns:
+            Tuple of (allowed, error_message)
+        """
+        # Must start with /web/
+        if not endpoint.startswith("/web/"):
+            return (
+                False,
+                f"Endpoint '{endpoint}' is not allowed. Only /web/* endpoints are permitted.",
+            )
+
+        # Block dangerous paths
+        blocked_prefixes = [
+            "/web/database/",
+            "/web/login",
+            "/web/session/",
+            "/web/base/",
+        ]
+        for prefix in blocked_prefixes:
+            if endpoint.startswith(prefix):
+                return False, f"Endpoint '{endpoint}' is blocked (administrative endpoint)."
+
+        # In readonly mode, only allow read-like endpoints
+        if self.config.readonly:
+            readonly_allowed = [
+                "/web/dataset/call_kw",
+                "/web/dataset/search_read",
+                "/web/read",
+                "/web/search_read",
+                "/web/export/",
+            ]
+            if not any(endpoint.startswith(p) for p in readonly_allowed):
+                return False, (
+                    f"Endpoint '{endpoint}' is blocked in readonly mode (ODOO_MCP_READONLY=true)"
+                )
+
+        return True, None
+
     def filter_enabled_models(self, models: List[str]) -> List[str]:
         """Filter list of models to only include enabled ones.
 

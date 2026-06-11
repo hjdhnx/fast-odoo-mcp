@@ -149,9 +149,13 @@ class OdooToolHandler:
         except Exception:
             return "invalid url"
 
-    async def _odoo_call(self, operation_name: str, func, operation_class: OperationClass = "light"):
+    async def _odoo_call(
+        self, operation_name: str, func, operation_class: OperationClass = "light"
+    ):
         if self.connection_manager is not None:
-            return await self.connection_manager.run_blocking(operation_name, func, operation_class=operation_class)
+            return await self.connection_manager.run_blocking(
+                operation_name, func, operation_class=operation_class
+            )
         return func()
 
     def _format_datetime(self, value: str) -> str:
@@ -550,7 +554,9 @@ class OdooToolHandler:
             Returns:
                 搜索结果，包含记录、总数和分页信息
             """
-            result = await self._handle_search_tool(model, domain, fields, limit, offset, order, include_total)
+            result = await self._handle_search_tool(
+                model, domain, fields, limit, offset, order, include_total
+            )
             return SearchResult(**result)
 
         @self.app.tool(
@@ -1006,6 +1012,44 @@ class OdooToolHandler:
                 )
                 return ExecuteMethodResult(**result)
 
+        if not _is_disabled("call_json_endpoint"):
+
+            @self.app.tool(
+                title="Call JSON Endpoint",
+                annotations=ToolAnnotations(
+                    readOnlyHint=False,
+                    destructiveHint=False,
+                    idempotentHint=False,
+                    openWorldHint=True,
+                ),
+            )
+            async def call_json_endpoint(
+                endpoint: str,
+                params: Optional[Dict[str, Any]] = None,
+            ) -> Dict[str, Any]:
+                """调用Odoo HTTP JSON端点（用于需要HTTP上下文的控制器方法）。
+
+                某些Odoo方法（如web_approval审批流程）是HTTP控制器，依赖request.env上下文，
+                无法通过XML-RPC的execute_method调用。此工具通过HTTP JSON请求直接调用这些端点。
+
+                典型用途:
+                - 提交审批: call_json_endpoint("/web/approval/commit_approval", {"model": "sale.order", "res_id": 5})
+                - 其他需要HTTP上下文的控制器端点
+
+                安全策略:
+                - 只允许调用/web/开头的已知安全端点
+                - readonly模式下只允许GET类操作
+
+                Args:
+                    endpoint: Odoo JSON端点路径 (例如 '/web/approval/commit_approval')
+                    params: 传递给端点的参数字典 (可选)
+
+                Returns:
+                    端点的JSON响应
+                """
+                result = await self._handle_call_json_endpoint_tool(endpoint, params)
+                return result
+
         if not _is_disabled("simulate_onchange"):
 
             @self.app.tool(
@@ -1191,7 +1235,9 @@ class OdooToolHandler:
                 if order:
                     search_kwargs["order"] = order
 
-                operation_class = "heavy" if limit >= 50 or parsed_fields == ["__all__"] else "light"
+                operation_class = (
+                    "heavy" if limit >= 50 or parsed_fields == ["__all__"] else "light"
+                )
                 records = await self._odoo_call(
                     "tool_search_read",
                     lambda: connection.search_read(
@@ -1893,7 +1939,9 @@ class OdooToolHandler:
                         lambda m=model, mt=method, a=rpc_args, k=rpc_kwargs: connection.execute_kw(
                             m, mt, a, k
                         ),
-                        operation_class="write" if method in {"create", "write", "unlink"} or method.startswith("action_") else "heavy",
+                        operation_class="write"
+                        if method in {"create", "write", "unlink"} or method.startswith("action_")
+                        else "heavy",
                     )
                 except OdooConnectionError as rpc_err:
                     none_hint = "cannot marshal None" in str(rpc_err)
@@ -1934,6 +1982,49 @@ class OdooToolHandler:
             logger.error(f"Error in execute_method tool: {e}")
             sanitized_msg = ErrorSanitizer.sanitize_message(str(e))
             raise ValidationError(f"Method execution failed: {sanitized_msg}") from e
+
+    async def _handle_call_json_endpoint_tool(
+        self,
+        endpoint: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Handle call_json_endpoint tool execution."""
+        try:
+            connection, access_controller, sub = await self._get_user_context()
+            with perf_logger.track_operation(f"tool_json_endpoint_{endpoint}"):
+                # Validate endpoint is safe
+                allowed, error_msg = access_controller.validate_json_endpoint(endpoint)
+                if not allowed:
+                    raise ValidationError(f"Access denied: {error_msg}")
+
+                if not connection.is_authenticated:
+                    raise ValidationError("Not authenticated with Odoo")
+
+                logger.info(f"call_json_endpoint: {endpoint} params={params}")
+
+                result = await self._odoo_call(
+                    f"tool_json_{endpoint}",
+                    lambda ep=endpoint, p=params: connection.call_json_endpoint(ep, p),
+                    operation_class="write",
+                )
+
+                return {
+                    "success": True,
+                    "endpoint": endpoint,
+                    "result": result,
+                    "message": f"Successfully called {endpoint}",
+                }
+
+        except ValidationError:
+            raise
+        except AccessControlError as e:
+            raise ValidationError(f"Access denied: {e}") from e
+        except OdooConnectionError as e:
+            raise ValidationError(f"Connection error: {e}") from e
+        except Exception as e:
+            logger.error(f"Error in call_json_endpoint tool: {e}")
+            sanitized_msg = ErrorSanitizer.sanitize_message(str(e))
+            raise ValidationError(f"JSON endpoint call failed: {sanitized_msg}") from e
 
     async def _handle_simulate_onchange_tool(
         self,

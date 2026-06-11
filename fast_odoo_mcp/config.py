@@ -61,6 +61,8 @@ class OdooConfig:
     allowed_hosts: FrozenSet[str] = frozenset()
     allowed_origins: FrozenSet[str] = frozenset()
     stateless_http: bool = True
+    # Extra method names allowed for execute_method tool (comma-separated)
+    safe_methods: FrozenSet[str] = frozenset()
 
     # API version: set by auto-detection after connecting (json2 for Odoo 19+, xmlrpc for 14-18)
     api_version: Literal["auto", "xmlrpc", "json2"] = "auto"
@@ -314,6 +316,7 @@ def load_config(env_file: Optional[Path] = None) -> OdooConfig:
         allowed_hosts=get_set_env("ODOO_MCP_ALLOWED_HOSTS"),
         allowed_origins=get_set_env("ODOO_MCP_ALLOWED_ORIGINS"),
         stateless_http=get_bool_env("ODOO_MCP_STATELESS_HTTP", True),
+        safe_methods=get_set_env("ODOO_MCP_SAFE_METHODS"),
     )
 
     # Validate that HTTP transports explicitly provide host and port if security requires it

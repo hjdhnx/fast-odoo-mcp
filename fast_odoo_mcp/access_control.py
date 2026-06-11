@@ -355,15 +355,18 @@ class AccessController:
         if method.startswith("__"):
             return False, f"Dunder methods ('{method}') are not callable via MCP"
 
-        is_safe = method in self.SAFE_METHOD_NAMES or any(
-            method.startswith(p) for p in self.SAFE_METHOD_PREFIXES
+        is_safe = (
+            method in self.SAFE_METHOD_NAMES
+            or any(method.startswith(p) for p in self.SAFE_METHOD_PREFIXES)
+            or method in self.config.safe_methods
         )
         if not is_safe:
-            return False, (
-                f"Method '{method}' is not in the MCP safe method list. "
-                f"Allowed: explicit safe names, or methods with prefixes "
-                f"{', '.join(self.SAFE_METHOD_PREFIXES)}"
+            hint = (
+                "Add it to ODOO_MCP_SAFE_METHODS to allow this method. "
+                f"Allowed: built-in safe names, prefixes ({', '.join(self.SAFE_METHOD_PREFIXES)}), "
+                f"or custom methods via ODOO_MCP_SAFE_METHODS"
             )
+            return False, (f"Method '{method}' is not in the MCP safe method list. {hint}")
 
         state_changing_methods = {
             "create",

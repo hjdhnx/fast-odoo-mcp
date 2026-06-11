@@ -83,6 +83,7 @@ class AccessController:
             "read_group",
             "name_search",
             "name_create",
+            # Standard Odoo workflow actions
             "action_done",
             "action_cancel",
             "action_confirm",
@@ -109,10 +110,15 @@ class AccessController:
             "action_launch",
             "action_archive",
             "action_unarchive",
+            # Mail/message methods
             "message_post",
             "message_subscribe",
             "message_unsubscribe",
             "message_notify",
+            # Approval workflow methods (web_approval module)
+            "commit_flow_approval",
+            "turn_approval",
+            "transfer_reading",
         }
     )
 

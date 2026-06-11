@@ -1143,11 +1143,25 @@ class OdooConnection:
                     },
                 }
                 auth_resp = client.post(f"{base_url}/web/session/authenticate", json=auth_payload)
+                logger.debug(f"Auth response status: {auth_resp.status_code}, content-type: {auth_resp.headers.get('content-type')}")
+
+                # Handle non-JSON responses (e.g., HTML error pages from proxies)
+                content_type = auth_resp.headers.get("content-type", "")
+                if "text/html" in content_type:
+                    raise OdooConnectionError(
+                        f"Odoo returned HTML instead of JSON (HTTP {auth_resp.status_code}). "
+                        f"Check if the Odoo URL '{base_url}' is correct and accessible."
+                    )
+
                 auth_data = auth_resp.json()
 
                 if not auth_data.get("result", {}).get("uid"):
                     error = auth_data.get("error", {})
-                    error_msg = error.get("data", {}).get("message") or error.get("message") or "Unknown error"
+                    error_msg = (
+                        error.get("data", {}).get("message")
+                        or error.get("message")
+                        or auth_data.get("result", {}).get("server_status", "Unknown error")
+                    )
                     raise OdooConnectionError(
                         f"JSON endpoint auth failed: {error_msg}. "
                         f"Ensure ODOO_USER and ODOO_PASSWORD are correctly set "

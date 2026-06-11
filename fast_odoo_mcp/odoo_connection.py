@@ -1119,7 +1119,16 @@ class OdooConnection:
             raise OdooConnectionError("Not connected to Odoo. Call connect() first.")
 
         base_url = self.config.url.rstrip("/")
-        password = self.config.api_key or self.config.password
+
+        # /web/session/authenticate requires username + password, not API key.
+        # If only API key is configured, try using it as password (some setups allow this).
+        # Otherwise require ODOO_PASSWORD to be set.
+        password = self.config.password or self.config.api_key
+        if not self.config.username:
+            raise OdooConnectionError(
+                "JSON endpoint requires ODOO_USER to be configured. "
+                "Please set ODOO_USER and ODOO_PASSWORD in your environment."
+            )
 
         try:
             with httpx.Client(timeout=self.timeout, verify=False) as client:
@@ -1138,8 +1147,11 @@ class OdooConnection:
 
                 if not auth_data.get("result", {}).get("uid"):
                     error = auth_data.get("error", {})
+                    error_msg = error.get("data", {}).get("message") or error.get("message") or "Unknown error"
                     raise OdooConnectionError(
-                        f"JSON endpoint auth failed: {error.get('message', 'Unknown error')}"
+                        f"JSON endpoint auth failed: {error_msg}. "
+                        f"Ensure ODOO_USER and ODOO_PASSWORD are correctly set "
+                        f"(API key cannot be used for web session authentication)."
                     )
 
                 # Step 2: Call the target endpoint with session cookie

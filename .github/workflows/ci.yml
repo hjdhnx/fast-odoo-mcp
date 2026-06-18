@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Set up Python
       uses: actions/setup-python@v6
@@ -54,7 +54,7 @@ jobs:
         python-version: ['3.10', '3.13']
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v6
@@ -110,7 +110,7 @@ jobs:
           --health-retries=5
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Set up Python
       uses: actions/setup-python@v6
@@ -202,7 +202,7 @@ jobs:
     if: always()
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Download coverage artifacts
       uses: actions/download-artifact@v6
@@ -235,7 +235,7 @@ jobs:
       && (needs.yolo-integration-test.result == 'success' || needs.yolo-integration-test.result == 'skipped')
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Set up Python
       uses: actions/setup-python@v6

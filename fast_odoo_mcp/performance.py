@@ -282,10 +282,7 @@ class Cache:
             return sum(Cache._estimate_size(item) for item in value) + 56
         if isinstance(value, dict):
             return (
-                sum(
-                    Cache._estimate_size(k) + Cache._estimate_size(v)
-                    for k, v in value.items()
-                )
+                sum(Cache._estimate_size(k) + Cache._estimate_size(v) for k, v in value.items())
                 + 64
             )
         if isinstance(value, set):
@@ -342,7 +339,9 @@ class ConnectionPool:
             logger.debug(f"Created isolated connection for {endpoint}")
         url = f"{self.config.url}{endpoint}"
         if self.config.url.startswith("https://"):
-            transport: Union[OdooTransport, OdooSafeTransport] = OdooSafeTransport(database=self._database)
+            transport: Union[OdooTransport, OdooSafeTransport] = OdooSafeTransport(
+                database=self._database
+            )
         else:
             transport = OdooTransport(database=self._database)
         return ServerProxy(url, transport=transport, allow_none=True)

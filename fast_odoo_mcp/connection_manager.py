@@ -105,7 +105,13 @@ class ConnectionManager:
             self._connect_locked()
             return self.connection, self.access_controller  # type: ignore[return-value]
 
-    def call_with_retry(self, operation_name: str, func: Callable[[], T], *, operation_class: OperationClass = "light") -> T:
+    def call_with_retry(
+        self,
+        operation_name: str,
+        func: Callable[[], T],
+        *,
+        operation_class: OperationClass = "light",
+    ) -> T:
         with self._lock:
             self._operation_count += 1
         semaphore = self._op_semaphores[operation_class]
@@ -143,8 +149,16 @@ class ConnectionManager:
                 with perf_logger.track_operation(f"{operation_name}_retry"):
                     return func()
 
-    async def run_blocking(self, operation_name: str, func: Callable[[], T], *, operation_class: OperationClass = "light") -> T:
-        return await asyncio.to_thread(self.call_with_retry, operation_name, func, operation_class=operation_class)
+    async def run_blocking(
+        self,
+        operation_name: str,
+        func: Callable[[], T],
+        *,
+        operation_class: OperationClass = "light",
+    ) -> T:
+        return await asyncio.to_thread(
+            self.call_with_retry, operation_name, func, operation_class=operation_class
+        )
 
     def close(self) -> None:
         with self._lock:

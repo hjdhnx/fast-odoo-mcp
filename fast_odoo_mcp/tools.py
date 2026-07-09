@@ -1248,7 +1248,11 @@ class OdooToolHandler:
                 records = await self._odoo_call(
                     "tool_search_read",
                     lambda: connection.search_read(
-                        model, parsed_domain, fields=fields_to_fetch, context=context, **search_kwargs
+                        model,
+                        parsed_domain,
+                        fields=fields_to_fetch,
+                        context=context,
+                        **search_kwargs,
                     ),
                     operation_class=operation_class,
                 )
@@ -1333,7 +1337,9 @@ class OdooToolHandler:
                 else:
                     records = await self._odoo_call(
                         "tool_get_record_read",
-                        lambda: connection.read(model, [record_id], fields_to_fetch, context=context),
+                        lambda: connection.read(
+                            model, [record_id], fields_to_fetch, context=context
+                        ),
                     )
                     if not records:
                         raise ValidationError(f"Record not found: {model} with ID {record_id}")

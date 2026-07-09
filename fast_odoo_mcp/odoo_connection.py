@@ -1203,7 +1203,9 @@ class OdooConnection:
                     },
                 }
                 auth_resp = client.post(f"{base_url}/web/session/authenticate", json=auth_payload)
-                logger.debug(f"Auth response status: {auth_resp.status_code}, content-type: {auth_resp.headers.get('content-type')}")
+                logger.debug(
+                    f"Auth response status: {auth_resp.status_code}, content-type: {auth_resp.headers.get('content-type')}"
+                )
 
                 # Handle non-JSON responses (e.g., HTML error pages from proxies)
                 content_type = auth_resp.headers.get("content-type", "")

@@ -15,7 +15,9 @@ class SearchResult(BaseModel):
     """Result of a record search operation."""
 
     records: List[Dict[str, Any]] = Field(description="List of matching records")
-    total: Optional[int] = Field(default=None, description="Total number of records matching the domain if requested")
+    total: Optional[int] = Field(
+        default=None, description="Total number of records matching the domain if requested"
+    )
     limit: int = Field(description="Maximum records returned per page")
     offset: int = Field(description="Number of records skipped")
     model: str = Field(description="Odoo model name that was searched")

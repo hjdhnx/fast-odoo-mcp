@@ -532,6 +532,7 @@ class OdooToolHandler:
             offset: int = 0,
             order: Optional[str] = None,
             include_total: bool = True,
+            context: Optional[Dict[str, Any]] = None,
         ) -> SearchResult:
             """在Odoo模型中搜索记录。
 
@@ -555,7 +556,7 @@ class OdooToolHandler:
                 搜索结果，包含记录、总数和分页信息
             """
             result = await self._handle_search_tool(
-                model, domain, fields, limit, offset, order, include_total
+                model, domain, fields, limit, offset, order, include_total, context
             )
             return SearchResult(**result)
 
@@ -572,6 +573,7 @@ class OdooToolHandler:
             model: str,
             record_id: int,
             fields: Optional[str | list[str]] = None,
+            context: Optional[Dict[str, Any]] = None,
         ) -> RecordResult:
             """通过ID获取特定记录，支持智能字段选择。
 
@@ -606,7 +608,7 @@ class OdooToolHandler:
                 包含请求字段的记录数据。当使用智能默认时，
                 会包含带有字段统计信息的元数据。
             """
-            result = await self._handle_get_record_tool(model, record_id, fields)
+            result = await self._handle_get_record_tool(model, record_id, fields, context)
             return result
 
         @self.app.tool(
@@ -794,6 +796,7 @@ class OdooToolHandler:
             async def create_record(
                 model: str,
                 values: Dict[str, Any],
+                context: Optional[Dict[str, Any]] = None,
             ) -> CreateResult:
                 """在Odoo模型中创建新记录。
 
@@ -804,7 +807,7 @@ class OdooToolHandler:
                 Returns:
                     创建的记录详情，包含ID、URL和确认信息。
                 """
-                result = await self._handle_create_record_tool(model, values)
+                result = await self._handle_create_record_tool(model, values, context)
                 return CreateResult(**result)
 
         if not _is_disabled("update_record"):
@@ -822,6 +825,7 @@ class OdooToolHandler:
                 model: str,
                 record_id: int,
                 values: Dict[str, Any],
+                context: Optional[Dict[str, Any]] = None,
             ) -> UpdateResult:
                 """更新现有记录。
 
@@ -833,7 +837,7 @@ class OdooToolHandler:
                 Returns:
                     更新后的记录详情和确认信息。
                 """
-                result = await self._handle_update_record_tool(model, record_id, values)
+                result = await self._handle_update_record_tool(model, record_id, values, context)
                 return UpdateResult(**result)
 
         if not _is_disabled("delete_record"):
@@ -879,6 +883,7 @@ class OdooToolHandler:
             async def create_records(
                 model: str,
                 vals_list: List[Dict[str, Any]],
+                context: Optional[Dict[str, Any]] = None,
             ) -> BulkCreateResult:
                 """在一次操作中创建多条记录 (最大配置数量)。
 
@@ -893,7 +898,7 @@ class OdooToolHandler:
                 Returns:
                     创建的记录ID列表，包含数量和确认信息。
                 """
-                result = await self._handle_create_records_tool(model, vals_list)
+                result = await self._handle_create_records_tool(model, vals_list, context)
                 return BulkCreateResult(**result)
 
         if not _is_disabled("update_records"):
@@ -911,6 +916,7 @@ class OdooToolHandler:
                 model: str,
                 record_ids: List[int],
                 values: Dict[str, Any],
+                context: Optional[Dict[str, Any]] = None,
             ) -> BulkUpdateResult:
                 """在一次操作中将相同的值更新到多条记录 (最大配置数量)。
 
@@ -925,7 +931,7 @@ class OdooToolHandler:
                 Returns:
                     更新的记录ID列表，包含数量和确认信息。
                 """
-                result = await self._handle_update_records_tool(model, record_ids, values)
+                result = await self._handle_update_records_tool(model, record_ids, values, context)
                 return BulkUpdateResult(**result)
 
         if not _is_disabled("delete_records"):
@@ -1185,6 +1191,7 @@ class OdooToolHandler:
         offset: int,
         order: Optional[str],
         include_total: bool = True,
+        context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Handle search tool request."""
         try:
@@ -1210,7 +1217,7 @@ class OdooToolHandler:
                 if include_total:
                     total_count = await self._odoo_call(
                         "tool_search_count",
-                        lambda: connection.search_count(model, parsed_domain),
+                        lambda: connection.search_count(model, parsed_domain, context=context),
                         operation_class="heavy",
                     )
 
@@ -1241,7 +1248,7 @@ class OdooToolHandler:
                 records = await self._odoo_call(
                     "tool_search_read",
                     lambda: connection.search_read(
-                        model, parsed_domain, fields=fields_to_fetch, **search_kwargs
+                        model, parsed_domain, fields=fields_to_fetch, context=context, **search_kwargs
                     ),
                     operation_class=operation_class,
                 )
@@ -1274,6 +1281,7 @@ class OdooToolHandler:
         model: str,
         record_id: int,
         fields: Optional[List[str]],
+        context: Optional[Dict[str, Any]] = None,
     ) -> RecordResult:
         """Handle get record tool request."""
         try:
@@ -1325,7 +1333,7 @@ class OdooToolHandler:
                 else:
                     records = await self._odoo_call(
                         "tool_get_record_read",
-                        lambda: connection.read(model, [record_id], fields_to_fetch),
+                        lambda: connection.read(model, [record_id], fields_to_fetch, context=context),
                     )
                     if not records:
                         raise ValidationError(f"Record not found: {model} with ID {record_id}")
@@ -1528,6 +1536,7 @@ class OdooToolHandler:
         self,
         model: str,
         values: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Handle create record tool request."""
         try:
@@ -1547,7 +1556,7 @@ class OdooToolHandler:
                 # Create the record
                 record_id = await self._odoo_call(
                     "tool_create_record_create",
-                    lambda: connection.create(model, values),
+                    lambda: connection.create(model, values, context=context),
                     operation_class="write",
                 )
 
@@ -1570,7 +1579,7 @@ class OdooToolHandler:
                 # Read only the essential fields
                 records = await self._odoo_call(
                     "tool_record_read_essential",
-                    lambda: connection.read(model, [record_id], essential_fields),
+                    lambda: connection.read(model, [record_id], essential_fields, context=context),
                 )
                 if not records:
                     raise ValidationError(
@@ -1611,6 +1620,7 @@ class OdooToolHandler:
         model: str,
         record_id: int,
         values: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Handle update record tool request."""
         try:
@@ -1630,7 +1640,7 @@ class OdooToolHandler:
                 # Check if record exists (only fetch ID to verify existence)
                 existing = await self._odoo_call(
                     "tool_update_record_exists",
-                    lambda: connection.read(model, [record_id], ["id"]),
+                    lambda: connection.read(model, [record_id], ["id"], context=context),
                 )
                 if not existing:
                     raise NotFoundError(f"Record not found: {model} with ID {record_id}")
@@ -1638,7 +1648,7 @@ class OdooToolHandler:
                 # Update the record
                 success = await self._odoo_call(
                     "tool_update_record_write",
-                    lambda: connection.write(model, [record_id], values),
+                    lambda: connection.write(model, [record_id], values, context=context),
                     operation_class="write",
                 )
 
@@ -1661,7 +1671,7 @@ class OdooToolHandler:
                 # Read only the essential fields
                 records = await self._odoo_call(
                     "tool_record_read_essential",
-                    lambda: connection.read(model, [record_id], essential_fields),
+                    lambda: connection.read(model, [record_id], essential_fields, context=context),
                 )
                 if not records:
                     raise ValidationError(
@@ -1763,6 +1773,7 @@ class OdooToolHandler:
         self,
         model: str,
         vals_list: List[Dict[str, Any]],
+        context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Handle bulk create tool request."""
         try:
@@ -1781,7 +1792,7 @@ class OdooToolHandler:
 
                 created_ids = await self._odoo_call(
                     "tool_create_records_bulk",
-                    lambda: connection.create_bulk(model, vals_list),
+                    lambda: connection.create_bulk(model, vals_list, context=context),
                     operation_class="write",
                 )
 
@@ -1809,6 +1820,7 @@ class OdooToolHandler:
         model: str,
         record_ids: List[int],
         values: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Handle bulk update tool request."""
         try:
@@ -1829,7 +1841,7 @@ class OdooToolHandler:
 
                 await self._odoo_call(
                     "tool_update_records_bulk",
-                    lambda: connection.write(model, record_ids, values),
+                    lambda: connection.write(model, record_ids, values, context=context),
                     operation_class="write",
                 )
 

@@ -323,21 +323,34 @@ class OdooJSON2Connection:
 
     # --- ORM methods ---
 
-    def search(self, model: str, domain: List[Union[str, List[Any]]], **kwargs: Any) -> List[int]:
+    def search(
+        self,
+        model: str,
+        domain: List[Union[str, List[Any]]],
+        context: Optional[Dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> List[int]:
         """Search for record IDs matching a domain.
 
         Args:
             model: Odoo model name
             domain: Domain filter
+            context: Optional Odoo context dict (e.g. {'allowed_company_ids': [id]}).
+                _call filters None, so omitting = unchanged behavior.
             **kwargs: limit, offset, order
 
         Returns:
             List of matching record IDs
         """
+        kwargs["context"] = context
         return self._call(model, "search", domain=domain, **kwargs)
 
     def read(
-        self, model: str, ids: List[int], fields: Optional[List[str]] = None
+        self,
+        model: str,
+        ids: List[int],
+        fields: Optional[List[str]] = None,
+        context: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """Read records by IDs.
 
@@ -345,6 +358,7 @@ class OdooJSON2Connection:
             model: Odoo model name
             ids: Record IDs to read
             fields: Field names to return (None = all fields)
+            context: Optional Odoo context dict (e.g. {'allowed_company_ids': [id]}).
 
         Returns:
             List of record dicts
@@ -352,6 +366,7 @@ class OdooJSON2Connection:
         kwargs: Dict[str, Any] = {"ids": ids}
         if fields:
             kwargs["fields"] = fields
+        kwargs["context"] = context
         return self._call(model, "read", **kwargs)
 
     def search_read(
@@ -359,6 +374,7 @@ class OdooJSON2Connection:
         model: str,
         domain: List[Union[str, List[Any]]],
         fields: Optional[List[str]] = None,
+        context: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ) -> List[Dict[str, Any]]:
         """Search and read in one call.
@@ -367,6 +383,7 @@ class OdooJSON2Connection:
             model: Odoo model name
             domain: Domain filter
             fields: Field names to return
+            context: Optional Odoo context dict (e.g. {'allowed_company_ids': [id]}).
             **kwargs: limit, offset, order
 
         Returns:
@@ -374,19 +391,26 @@ class OdooJSON2Connection:
         """
         if fields:
             kwargs["fields"] = fields
+        kwargs["context"] = context
         return self._call(model, "search_read", domain=domain, **kwargs)
 
-    def search_count(self, model: str, domain: List[Union[str, List[Any]]]) -> int:
+    def search_count(
+        self,
+        model: str,
+        domain: List[Union[str, List[Any]]],
+        context: Optional[Dict[str, Any]] = None,
+    ) -> int:
         """Count records matching a domain.
 
         Args:
             model: Odoo model name
             domain: Domain filter
+            context: Optional Odoo context dict (e.g. {'allowed_company_ids': [id]}).
 
         Returns:
             Number of matching records
         """
-        return self._call(model, "search_count", domain=domain)
+        return self._call(model, "search_count", domain=domain, context=context)
 
     def fields_get(
         self, model: str, attributes: Optional[List[str]] = None
@@ -419,18 +443,25 @@ class OdooJSON2Connection:
 
         return result
 
-    def create(self, model: str, values: Dict[str, Any]) -> int:
+    def create(
+        self,
+        model: str,
+        values: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
+    ) -> int:
         """Create a new record.
 
         Args:
             model: Odoo model name
             values: Field values for the new record
+            context: Optional Odoo context dict (e.g. {'allowed_company_ids': [id]}).
+                Decides which company company_dependent fields are written under.
 
         Returns:
             ID of the created record
         """
         # Odoo 19 JSON/2 expects vals_list (list of dicts) for create
-        result = self._call(model, "create", vals_list=[values])
+        result = self._call(model, "create", vals_list=[values], context=context)
         # Invalidate field cache for this model (in case of computed fields)
         self._fields_cache.pop(model, None)
         # create returns a list of IDs; extract the single ID
@@ -438,35 +469,48 @@ class OdooJSON2Connection:
         logger.info(f"Created {model} record with ID {record_id}")
         return record_id
 
-    def create_bulk(self, model: str, vals_list: List[Dict[str, Any]]) -> List[int]:
+    def create_bulk(
+        self,
+        model: str,
+        vals_list: List[Dict[str, Any]],
+        context: Optional[Dict[str, Any]] = None,
+    ) -> List[int]:
         """Create multiple records in a single call.
 
         Args:
             model: Odoo model name
             vals_list: List of dicts, each containing field values for one record
+            context: Optional Odoo context dict (e.g. {'allowed_company_ids': [id]}).
 
         Returns:
             List of IDs of the created records
         """
-        result = self._call(model, "create", vals_list=vals_list)
+        result = self._call(model, "create", vals_list=vals_list, context=context)
         self._fields_cache.pop(model, None)
         if not isinstance(result, list):
             result = [result]
         logger.info(f"Bulk created {len(result)} {model} record(s)")
         return result
 
-    def write(self, model: str, ids: List[int], values: Dict[str, Any]) -> bool:
+    def write(
+        self,
+        model: str,
+        ids: List[int],
+        values: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         """Update existing records.
 
         Args:
             model: Odoo model name
             ids: Record IDs to update
             values: Field values to update
+            context: Optional Odoo context dict (e.g. {'allowed_company_ids': [id]}).
 
         Returns:
             True if successful
         """
-        result = self._call(model, "write", ids=ids, vals=values)
+        result = self._call(model, "write", ids=ids, vals=values, context=context)
         logger.info(f"Updated {len(ids)} {model} record(s)")
         return result
 

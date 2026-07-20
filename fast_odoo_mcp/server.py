@@ -28,7 +28,7 @@ from .tools import register_tools
 logger = get_logger(__name__)
 
 # Server version
-SERVER_VERSION = "1.0.1"
+SERVER_VERSION = "1.3.3"
 GIT_COMMIT = "unknown"
 _BUILD_ORIGIN = "fast-odoo-mcp-main"
 

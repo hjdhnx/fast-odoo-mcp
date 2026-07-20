@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.3] - 2026-07-20
+
+### Fixed
+- **Retry safety for non-idempotent operations**: `ConnectionManager.call_with_retry` no longer retries non-idempotent ORM operations (`create`/`write`/`unlink`/`action_*`/`onchange_*`) even on genuinely transient errors (timeout, dropped connection). Root cause: the first attempt often already committed on the Odoo side (e.g. `credit.record` `action_submit` flipped state draft→confirmed), so a retry after a response-stage failure hit a state/constraint error that masked the successful write, surfacing misleading messages like "仅草稿状态的记录可提交". Only idempotent `read`/`search` calls remain retryable.
+- **Deterministic errors excluded from retry**: Business errors (xmlrpc Fault / Odoo `UserError`, wrapped as "Operation failed: ...") are now treated as deterministic and never retried — the result would be identical, so retrying only wastes a call.
+- **Correct version reporting**: `--version` and the `/health` endpoint now report the real package version. `SERVER_VERSION` had been stuck at `1.0.1`; all version identifiers (`pyproject.toml`, `SERVER_VERSION`, `__version__`) are now unified.
+
+### Changed
+- **`execute_method` observability**: Added structured logging for successful results, record-cache invalidation, and error paths (raw error + sanitized message, with full traceback) to aid diagnosis of `action_*` / `button_*` calls.
+
 ## [0.5.0] - 2026-02-28
 
 ### Added

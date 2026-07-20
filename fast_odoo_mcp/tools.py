@@ -1970,7 +1970,24 @@ class OdooToolHandler:
                         )
                         result = None
                     else:
+                        logger.error(
+                            "execute_method OdooConnectionError: %s.%s(args=%s) raw=%r",
+                            model,
+                            method,
+                            rpc_args,
+                            rpc_err,
+                            exc_info=True,
+                        )
                         raise
+
+                logger.info(
+                    "execute_method result: %s.%s(args=%s, kwargs=%s) -> result=%r",
+                    model,
+                    method,
+                    rpc_args,
+                    rpc_kwargs,
+                    result,
+                )
 
                 message = f"Successfully called {model}.{method}()"
                 if record_ids:
@@ -1981,6 +1998,11 @@ class OdooToolHandler:
                 if record_ids:
                     for rid in record_ids:
                         self.perf_manager.invalidate_record_cache(model, rid)
+                    logger.info(
+                        "execute_method invalidated cache: model=%s record_ids=%s",
+                        model,
+                        record_ids,
+                    )
 
                 return {
                     "success": True,
@@ -1995,10 +2017,28 @@ class OdooToolHandler:
         except AccessControlError as e:
             raise ValidationError(f"Access denied: {e}") from e
         except OdooConnectionError as e:
+            logger.error(
+                "execute_method outer OdooConnectionError: %s.%s(args=%s) raw=%r",
+                model,
+                method,
+                rpc_args,
+                str(e),
+                exc_info=True,
+            )
             raise ValidationError(f"Connection error: {e}") from e
         except Exception as e:
-            logger.error(f"Error in execute_method tool: {e}")
-            sanitized_msg = ErrorSanitizer.sanitize_message(str(e))
+            raw_msg = str(e)
+            sanitized_msg = ErrorSanitizer.sanitize_message(raw_msg)
+            logger.error(
+                "execute_method FAILED: %s.%s(args=%s, kwargs=%s) raw_error=%r sanitized=%r",
+                model,
+                method,
+                rpc_args,
+                rpc_kwargs,
+                raw_msg,
+                sanitized_msg,
+                exc_info=True,
+            )
             raise ValidationError(f"Method execution failed: {sanitized_msg}") from e
 
     async def _handle_call_json_endpoint_tool(

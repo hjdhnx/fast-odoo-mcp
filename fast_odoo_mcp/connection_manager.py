@@ -22,6 +22,32 @@ T = TypeVar("T")
 OperationClass = Literal["light", "heavy", "write"]
 
 
+# Non-idempotent ORM operations whose retry is unsafe. The first attempt may
+# have already committed on the Odoo side (e.g. credit.record action_submit
+# already flipped state draft→confirmed), so a retry after a transient
+# response-stage failure (timeout / dropped connection) hits a state or
+# constraint error and masks the fact that the write actually succeeded.
+# Only read/search calls are safe to retry on a transient OdooConnectionError.
+_NON_IDEMPOTENT_MARKERS = (
+    "execute_action",  # execute_method(model, "action_*")
+    "execute_write",
+    "execute_create",
+    "execute_unlink",
+    "create_record",
+    "create_records",
+    "update_record",
+    "update_records",
+    "delete_record",
+    "delete_records",
+    "onchange_execute",
+)
+
+
+def _is_non_idempotent_operation(operation_name: str) -> bool:
+    name = (operation_name or "").lower()
+    return any(marker in name for marker in _NON_IDEMPOTENT_MARKERS)
+
+
 class _ConnectionProxy:
     """Thread-safe proxy that always delegates to the ConnectionManager's current connection.
 
@@ -130,10 +156,19 @@ class ConnectionManager:
                     return func()
             except OdooConnectionError as exc:
                 self._record_error(exc)
-                # Skip retry for server-side serialization errors (e.g. method
-                # returns None but Odoo's XML-RPC responder lacks allow_none).
-                # These are deterministic, not transient.
-                if "cannot marshal None" in str(exc):
+                lowered = str(exc).lower()
+                # Never retry deterministic errors: None serialization, or
+                # business errors (xmlrpc Fault / Odoo UserError) which
+                # odoo_connection wraps as "Operation failed: ...". Retrying
+                # them only wastes a call — the result is identical.
+                is_deterministic = "cannot marshal none" in lowered or "operation failed" in lowered
+                # Never retry non-idempotent write/action operations even on
+                # genuinely transient errors (timeout / dropped connection):
+                # the first attempt often already committed on the Odoo side,
+                # and a retry hits a state/constraint error that masks the
+                # success. Root cause of credit.record action_submit reporting
+                # "仅草稿状态的记录可提交" while state was in fact confirmed.
+                if is_deterministic or _is_non_idempotent_operation(operation_name):
                     raise
                 with self._lock:
                     self._retry_count += 1
